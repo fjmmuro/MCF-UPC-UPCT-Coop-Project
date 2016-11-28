@@ -28,6 +28,7 @@ import com.net2plan.interfaces.networkDesign.MulticastDemand;
 import com.net2plan.interfaces.networkDesign.MulticastTree;
 import com.net2plan.interfaces.networkDesign.Net2PlanException;
 import com.net2plan.interfaces.networkDesign.NetPlan;
+import com.net2plan.interfaces.networkDesign.NetworkLayer;
 import com.net2plan.interfaces.networkDesign.Node;
 import com.net2plan.interfaces.networkDesign.Route;
 import com.net2plan.utils.InputParameter;
@@ -37,6 +38,7 @@ import com.net2plan.utils.Triple;
 import com.net2plan.utils.Constants.RoutingType;
 import com.net2plan.libraries.GraphUtils;
 import com.net2plan.libraries.TrafficMatrixGenerationModels;
+import com.net2plan.libraries.WDMUtils;
 
 import cern.colt.matrix.tdouble.DoubleFactory1D;
 import cern.colt.matrix.tdouble.DoubleFactory2D;
@@ -50,9 +52,14 @@ import cern.jet.math.tdouble.DoubleFunctions;
  */
 public class MCF_ILP_UPC_UPCT_Coop implements IAlgorithm
 {
-	
+	final private InputParameter k = new InputParameter ("k", (int) 5 , "Maximum number of admissible paths per input-output node pair" , 1 , Integer.MAX_VALUE);
 	final private InputParameter numCores = new InputParameter ("numCores", (int) 7 , "Number of cores per fiber");
 	final private InputParameter coreCapacity = new InputParameter ("coreCapacity", (int) 1 , "Capacity in number of slots per Core");
+	final private InputParameter wdmLayerIndex = new InputParameter ("wdmLayerIndex", (int) 0 , "Index of the WDM layer (-1 means default layer)");
+	final private InputParameter numFrequencySlotsPerFiber = new InputParameter ("numWavelengthsPerFiber", (int) 40 , "Number of wavelengths per link" , 1, Integer.MAX_VALUE);
+	final private InputParameter maxPropagationDelayMs = new InputParameter ("maxPropagationDelayMs", (double) -1 , "Maximum allowed propagation time of a lighptath in miliseconds. If non-positive, no limit is assumed");
+	final private InputParameter transponderTypesInfo = new InputParameter ("transponderTypesInfo", "10 1 1 9600 1" , "Transponder types separated by \";\" . Each type is characterized by the space-separated values: (i) Line rate in Gbps, (ii) cost of the transponder, (iii) number of slots occupied in each traversed fiber, (iv) optical reach in km (a non-positive number means no reach limit), (v) cost of the optical signal regenerator (regenerators do NOT make wavelength conversion ; if negative, regeneration is not possible).");
+
 	
 	/** The method called by Net2Plan to run the algorithm (when the user presses the "Execute" button)
 	 * @param netPlan The input network design. The developed algorithm should modify it: it is the way the new design is returned
@@ -63,15 +70,33 @@ public class MCF_ILP_UPC_UPCT_Coop implements IAlgorithm
 	@Override
 	public String executeAlgorithm(NetPlan netPlan, Map<String, String> algorithmParameters, Map<String, String> net2planParameters)
 	{
-		// Remove all initial demands from the loaded topology
-		netPlan.removeAllDemands();
-		
 		/* Initialize all InputParameter objects defined in this object (this uses Java reflection) */
-		InputParameter.initializeAllInputParameterFieldsOfObject(this, algorithmParameters);
+		InputParameter.initializeAllInputParameterFieldsOfObject(this, algorithmParameters);	
 		
-		/*  Initializations and algorithm loads */
+		final NetworkLayer wdmLayer = wdmLayerIndex.getInt () == -1? netPlan.getNetworkLayerDefault() : netPlan.getNetworkLayer(wdmLayerIndex.getInt ());
+
+		/* Basic checks */
 		final int N = netPlan.getNumberOfNodes();
-		final int E = netPlan.getNumberOfLinks();
+		final int E = netPlan.getNumberOfLinks(wdmLayer);
+		final int D = netPlan.getNumberOfDemands(wdmLayer);
+		final int S = numFrequencySlotsPerFiber.getInt();
+		if (N == 0 || E == 0 || D == 0) throw new Net2PlanException("This algorithm requires a topology with links and a demand set");
+		
+		/* Remove all routes in current netPlan object. Initialize link capacities and attributes, and demand offered traffic */
+		netPlan.removeAllMulticastTrees(wdmLayer);
+		netPlan.removeAllUnicastRoutingInformation(wdmLayer);
+		netPlan.setRoutingType(RoutingType.SOURCE_ROUTING , wdmLayer);
+		
+		/* Store transpoder info */
+		WDMUtils.TransponderTypesInfo tpInfo = new WDMUtils.TransponderTypesInfo(transponderTypesInfo.getString());
+		final int T = tpInfo.getNumTypes();	
+		
+		
+		final Map<Demand,List<List<Link>>> cpl = netPlan.computeUnicastCandidatePathList(wdmLayer , 
+				netPlan.getVectorLinkLengthInKm(wdmLayer).toArray(), "K" , "" + k.getInt() , "maxLengthInKm" , ""+tpInfo.getMaxOpticalReachKm(), "maxPropDelayInMs" , "" + maxPropagationDelayMs.getDouble());
+
+		
+		
 		
 		
 		/**** ILP Module ****/
