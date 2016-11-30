@@ -287,7 +287,8 @@ public class MCF_ILP_UPC_UPCT_Coop implements IAlgorithm
 			
 		}
 		
-		if (C == 1)	WDMUtils.checkResourceAllocationClashing(netPlan,false,false,wdmLayer);
+		if (isCCC)
+			if (C == 1)	WDMUtils.checkResourceAllocationClashing(netPlan,false,false,wdmLayer);
 		
 		return "Ok!"; // this is the message that will be shown in the screen at the end of the algorithm
 	}
