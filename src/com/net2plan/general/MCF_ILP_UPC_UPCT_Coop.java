@@ -32,6 +32,8 @@ import com.net2plan.libraries.WDMUtils;
 
 import cern.colt.list.tdouble.DoubleArrayList;
 import cern.colt.list.tint.IntArrayList;
+import cern.colt.matrix.DoubleFactory3D;
+import cern.colt.matrix.DoubleMatrix3D;
 import cern.colt.matrix.tdouble.DoubleFactory2D;
 import cern.colt.matrix.tdouble.DoubleMatrix2D;
 
@@ -50,7 +52,7 @@ public class MCF_ILP_UPC_UPCT_Coop implements IAlgorithm
 	final private InputParameter numFrequencySlotsPerCore = new InputParameter ("numFrequencySlotsPerCore", (int) 320 , "Number of wavelengths per link" , 1, Integer.MAX_VALUE);
 	final private InputParameter maxPropagationDelayMs = new InputParameter ("maxPropagationDelayMs", (double) -1 , "Maximum allowed propagation time of a lighptath in miliseconds. If non-positive, no limit is assumed");
 	final private InputParameter transponderTypesInfo = new InputParameter ("transponderTypesInfo", "10 1 1 9600 1" , "Transponder types separated by \";\" . Each type is characterized by the space-separated values: (i) Line rate in Gbps, (ii) cost of the transponder, (iii) number of slots occupied in each traversed fiber, (iv) optical reach in km (a non-positive number means no reach limit), (v) cost of the optical signal regenerator (regenerators do NOT make wavelength conversion ; if negative, regeneration is not possible).");
-	
+	final private InputParameter ilpType = new InputParameter("ilpType", "#select# non-core-continuity-constraint core-continity-constraint", "Choose the type of the ILP exection");
 	
 	/** The method called by Net2Plan to run the algorithm (when the user presses the "Execute" button)
 	 * @param netPlan The input network design. The developed algorithm should modify it: it is the way the new design is returned
@@ -81,6 +83,7 @@ public class MCF_ILP_UPC_UPCT_Coop implements IAlgorithm
 		netPlan.removeAllUnicastRoutingInformation(wdmLayer);
 		netPlan.setRoutingType(RoutingType.SOURCE_ROUTING , wdmLayer);
 
+		final boolean isCCC = ilpType.getString().equalsIgnoreCase("non-core-continuity-constraint");
 		
 		/* Store transponder info */
 		WDMUtils.TransponderTypesInfo tpInfo = new WDMUtils.TransponderTypesInfo(transponderTypesInfo.getString());
@@ -120,23 +123,42 @@ public class MCF_ILP_UPC_UPCT_Coop implements IAlgorithm
 		final int P = transponderType_p.size(); // one per potential sequence of links and transponder
 
 		/* Compute some important matrices for the formulation */
+		
+		
 		DoubleMatrix2D A_dp = DoubleFactory2D.sparse.make(D,P); /* 1 is path p is assigned to demand d */
 		DoubleMatrix2D A_ep = DoubleFactory2D.sparse.make(E,P); /* 1 if path p travserses link e */
-		double [][] feasibleAssignment_ps = new double [P][S];
 		
-		for (int p = 0; p < P; p++)
+
+		double [][] feasibleAssignment_ps = new double [P][S];
+		double [][][] feasibleAssignment_pcs = new double [P][C][S];
+		
+		if(isCCC)
 		{
-			A_dp.set(demand_p.get(p).getIndex(), p, 1.0);
-			for (Link e : seqLinks_p.get(p)) A_ep.set (e.getIndex() , p , 1.0);
-			for (int s = 0; s < S + 1 - numSlots_p.get(p) ; s ++)
-				feasibleAssignment_ps [p][s] = 1;
+			for (int p = 0; p < P; p++)
+			{
+				A_dp.set(demand_p.get(p).getIndex(), p, 1.0);
+				for (Link e : seqLinks_p.get(p)) A_ep.set (e.getIndex() , p , 1.0);
+				for (int s = 0; s < S + 1 - numSlots_p.get(p) ; s ++)
+					feasibleAssignment_ps [p][s] = 1;
+			}
 		}
+		else
+		{
+			for (int c = 0; c < C; c++)			
+				for (int p = 0; p < P; p++)				
+					for (int s = 0; s < S + 1 - numSlots_p.get(p) ; s ++)
+						feasibleAssignment_pcs [p][c][s] = 1;				
+		}
+		
 		
 		/* Create the optimization problem object (JOM library) */
 		OptimizationProblem op = new OptimizationProblem();
 
 		/* Add the decision variables to the problem */
-		op.addDecisionVariable("x_ps", true, new int[] {P, S}, new DoubleMatrixND (new int [] {P,S}) , new DoubleMatrixND (feasibleAssignment_ps)); /* 1 if lightpath d(p) is routed through path p in wavelength w */
+		if (isCCC)
+			op.addDecisionVariable("x_ps", true, new int[] {P, S}, new DoubleMatrixND (new int [] {P,S}) , new DoubleMatrixND (feasibleAssignment_ps)); /* 1 if lightpath d(p) is routed through path p in wavelength w */
+		else
+			op.addDecisionVariable("x_pcs", true, new int[] {P, C, S}, new DoubleMatrixND (new int [] {P,C,S}) , new DoubleMatrixND (feasibleAssignment_pcs));
 		
 		// Set input Parameters		
 		op.setInputParameter("S", S);
@@ -148,9 +170,24 @@ public class MCF_ILP_UPC_UPCT_Coop implements IAlgorithm
 		op.setInputParameter("A_ep", A_ep); //Equal to route and segment indexes
 		
 		// Set Objective Function
-		op.setObjectiveFunction("minimize", "sum(c_p * x_ps)"); /* sum_ps (c_p · x_ps) */
+		if(isCCC) op.setObjectiveFunction("minimize", "sum(c_p * x_ps)"); /* sum_ps (c_p . x_ps) */
+		else
+		{
+			String objectiveFuntion = "";
+			for (int c = 0; c < C ; c++)			
+				objectiveFuntion += (c == 0? "" : " + ") + "sum(c_p * x_pcs(:," + Integer.toString(c) + ",:))" ;			
+			op.setObjectiveFunction("minimize", objectiveFuntion);     /* sum_ps (c_p . x_pcs) */
+		}
 		
-		op.addConstraint("A_dp * diag (rate_p) * x_ps * ones([S; 1]) >= h_d'"); /* each lightpath d: is carried in exactly one p-w --> sum_{p in P_d, w} x_dp <= 1, for all d */
+		if(isCCC) op.addConstraint("A_dp * diag (rate_p) * x_ps * ones([S; 1]) >= h_d'"); /* each lightpath d: is carried in exactly one p-w --> sum_{p in P_d, w} x_dp <= 1, for all d */
+		else 
+		{
+			String constraint = "";
+			for (int c = 0; c < C; c++)
+				constraint += (c == 0? "" : " + ") + "A_dp * diag (rate_p) * x_pcs(:," + Integer.toString(c) + ",:) * ones([S; 1])";
+			constraint += ">= h_d'";
+			op.addConstraint(constraint);
+		}
 		
 		/* Frequency-slot clashing */
 		/* \sum_t \sum_{p \in P_e, sinit {s-numSlots(t),s} x_ps <= 1, for each e, s   */
@@ -182,6 +219,7 @@ public class MCF_ILP_UPC_UPCT_Coop implements IAlgorithm
 
 		/* Retrieve the optimum solutions */
 		DoubleMatrix2D x_ps = op.getPrimalSolution("x_ps").view2D();
+		op.getPrimalSolution("x_ps").view2D();
 		
 		/* Create the lightpaths according to the solutions given */
 		WDMUtils.setFibersNumFrequencySlots(netPlan , numFrequencySlotsPerCore.getInt() , wdmLayer);
