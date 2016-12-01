@@ -84,7 +84,7 @@ public class MCF_ILP_UPC_UPCT_Coop implements IAlgorithm
 		netPlan.removeAllUnicastRoutingInformation(wdmLayer);
 		netPlan.setRoutingType(RoutingType.SOURCE_ROUTING , wdmLayer);
 
-		final boolean isCCC = ilpType.getString().equalsIgnoreCase("non-core-continuity-constraint");
+		final boolean isNotCCC = ilpType.getString().equalsIgnoreCase("non-core-continuity-constraint");
 		
 		/* Store transponder info */
 		WDMUtils.TransponderTypesInfo tpInfo = new WDMUtils.TransponderTypesInfo(transponderTypesInfo.getString());
@@ -144,7 +144,7 @@ public class MCF_ILP_UPC_UPCT_Coop implements IAlgorithm
 		OptimizationProblem op = new OptimizationProblem();
 
 		/* Add the decision variables to the problem */
-		if (isCCC)
+		if (isNotCCC)
 			op.addDecisionVariable("x_ps", true, new int[] {P, S}, new DoubleMatrixND (new int [] {P,S}) , new DoubleMatrixND (feasibleAssignment_ps)); /* 1 if lightpath d(p) is routed through path p in wavelength w */
 		else		
 			for (int c = 0 ; c < C; c++)			
@@ -161,7 +161,7 @@ public class MCF_ILP_UPC_UPCT_Coop implements IAlgorithm
 		op.setInputParameter("A_ep", A_ep); //Equal to route and segment indexes
 		
 		// Set Objective Function
-		if(isCCC) op.setObjectiveFunction("minimize", "sum(c_p * x_ps)"); /* sum_ps (c_p . x_ps) */
+		if(isNotCCC) op.setObjectiveFunction("minimize", "sum(c_p * x_ps)"); /* sum_ps (c_p . x_ps) */
 		else
 		{
 			String objectiveFuntion = "";
@@ -170,15 +170,18 @@ public class MCF_ILP_UPC_UPCT_Coop implements IAlgorithm
 			op.setObjectiveFunction("minimize", objectiveFuntion);     /* sum_ps (c_p . x_pcs) */
 		}
 		
-		if(isCCC) op.addConstraint("A_dp * diag (rate_p) * x_ps * ones([S; 1]) >= h_d'"); /* each lightpath d: is carried in exactly one p-w --> sum_{p in P_d, w} x_dp <= 1, for all d */
+		if(isNotCCC) op.addConstraint("A_dp * diag (rate_p) * x_ps * ones([S; 1]) >= h_d'"); /* each lightpath d: is carried in exactly one p-w --> sum_{p in P_d, w} x_dp <= 1, for all d */
 		else 		
+		{
+			String constraintString = "";
 			for (int c = 0; c < C; c++)
-				op.addConstraint("A_dp * diag (rate_p) * x_ps" + Integer.toString(c) + " * ones([S; 1]) >= h_d'");
-		
+				constraintString += (c == 0? "" : " + ") + "A_dp * diag (rate_p) * x_ps" + Integer.toString(c) + " * ones([S; 1]) " ;
+			op.addConstraint(constraintString +" >= h_d'");
+		}
 		
 		/* Frequency-slot clashing */
 		/* \sum_t \sum_{p \in P_e, sinit {s-numSlots(t),s} x_ps <= 1, for each e, s   */
-		if(isCCC)
+		if(isNotCCC)
 		{
 			String constraintString = "";
 			for (int t = 0; t < T ; t ++)
@@ -237,7 +240,7 @@ public class MCF_ILP_UPC_UPCT_Coop implements IAlgorithm
 		DoubleMatrix2D x_ps = DoubleFactory2D.sparse.make(P,S);
 		List<DoubleMatrix2D> x_psc = new ArrayList<DoubleMatrix2D>();
 		
-		if(isCCC) x_ps = op.getPrimalSolution("x_ps").view2D();
+		if(isNotCCC) x_ps = op.getPrimalSolution("x_ps").view2D();
 		else
 		{
 			
@@ -255,7 +258,7 @@ public class MCF_ILP_UPC_UPCT_Coop implements IAlgorithm
 		
 		for (int p = 0; p < P ; p ++)
 		{
-			if(isCCC)
+			if(isNotCCC)
 			{
 				slots.clear(); vals.clear();
 				x_ps.viewRow(p).getNonZeros(slots , vals);
@@ -287,7 +290,7 @@ public class MCF_ILP_UPC_UPCT_Coop implements IAlgorithm
 			
 		}
 		
-		if (isCCC)
+		if (isNotCCC)
 			if (C == 1)	WDMUtils.checkResourceAllocationClashing(netPlan,false,false,wdmLayer);
 		
 		return "Ok!"; // this is the message that will be shown in the screen at the end of the algorithm
