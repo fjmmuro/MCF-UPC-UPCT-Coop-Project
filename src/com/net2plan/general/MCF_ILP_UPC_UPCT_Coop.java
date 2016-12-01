@@ -33,8 +33,6 @@ import com.net2plan.libraries.WDMUtils;
 
 import cern.colt.list.tdouble.DoubleArrayList;
 import cern.colt.list.tint.IntArrayList;
-import cern.colt.matrix.DoubleFactory3D;
-import cern.colt.matrix.DoubleMatrix3D;
 import cern.colt.matrix.tdouble.DoubleFactory2D;
 import cern.colt.matrix.tdouble.DoubleMatrix2D;
 
@@ -75,7 +73,6 @@ public class MCF_ILP_UPC_UPCT_Coop implements IAlgorithm
 		final int D = netPlan.getNumberOfDemands(wdmLayer);
 		final int C = numCores.getInt();
 		final int S = numFrequencySlotsPerCore.getInt();
-
 		
 		if (N == 0 || E == 0 || D == 0 || S == 0 || C == 0) throw new Net2PlanException("This algorithm requires a topology with links, slots and a demand set");
 		
@@ -86,13 +83,15 @@ public class MCF_ILP_UPC_UPCT_Coop implements IAlgorithm
 
 		final boolean isNotCCC = ilpType.getString().equalsIgnoreCase("non-core-continuity-constraint");
 		
-		/* Store transponder info */
+		// Store transponder info 
 		WDMUtils.TransponderTypesInfo tpInfo = new WDMUtils.TransponderTypesInfo(transponderTypesInfo.getString());
 		final int T = tpInfo.getNumTypes();	
 		
+		// Compute the candidate path list
 		final Map<Demand,List<List<Link>>> cpl = netPlan.computeUnicastCandidatePathList(wdmLayer , 
 				netPlan.getVectorLinkLengthInKm(wdmLayer).toArray(), "K" , "" + k.getInt() , "maxLengthInKm" , ""+tpInfo.getMaxOpticalReachKm(), "maxPropDelayInMs" , "" + maxPropagationDelayMs.getDouble());
  
+		// Initialize lists needed for ILP 
 		final int maximumNumberOfPaths = T*k.getInt()*D;
 		List<Integer> transponderType_p = new ArrayList<Integer> (maximumNumberOfPaths);
 		List<Double> cost_p = new ArrayList<Double> (maximumNumberOfPaths); 
@@ -185,8 +184,7 @@ public class MCF_ILP_UPC_UPCT_Coop implements IAlgorithm
 		{
 			String constraintString = "";
 			for (int t = 0; t < T ; t ++)
-			{
-			
+			{			
 				final String name_At_pp = "A" + Integer.toString(t) + "_pp";
 				final String name_At_s1s2 = "A" + Integer.toString(t) + "_s1s2";
 				/* At_pp, diagonal matrix, 1 if path p is associated to a transponder of type t */
@@ -210,8 +208,7 @@ public class MCF_ILP_UPC_UPCT_Coop implements IAlgorithm
 			{
 				String constraintString = "";
 				for (int t = 0; t < T ; t ++)
-				{
-				
+				{				
 					final String name_At_pp = "A" + Integer.toString(t) + "_pp";
 					final String name_At_s1s2 = "A" + Integer.toString(t) + "_s1s2";
 					/* At_pp, diagonal matrix, 1 if path p is associated to a transponder of type t */
@@ -242,14 +239,12 @@ public class MCF_ILP_UPC_UPCT_Coop implements IAlgorithm
 		
 		if(isNotCCC) x_ps = op.getPrimalSolution("x_ps").view2D();
 		else
-		{
-			
+		{			
 			for (int c = 0; c < C; c++)
 			{
 				String name = "x_ps"+Integer.toString(c);
 				x_psc.add(op.getPrimalSolution(name).view2D());
-			}
-				
+			}				
 		}
 		
 		/* Create the lightpaths according to the solutions given */
@@ -292,12 +287,14 @@ public class MCF_ILP_UPC_UPCT_Coop implements IAlgorithm
 						coreIDs += r.getAttribute("fiberCoreID") + " ";
 					d.setAttribute("fiberCoreIDs", coreIDs);					
 				}
-			}
-			
+			}			
 		}
 		
 		if (isNotCCC)
 			if (C == 1)	WDMUtils.checkResourceAllocationClashing(netPlan,false,false,wdmLayer);
+		else
+			MCFUtils.checkResourceAllocationClashingPerCore(netPlan, C);
+		
 		
 		return "Ok!"; // this is the message that will be shown in the screen at the end of the algorithm
 	}
