@@ -48,9 +48,9 @@ public class MCF_ILP_UPC_UPCT_Coop implements IAlgorithm
 	final private InputParameter solverLibraryName = new InputParameter ("solverLibraryName", "" , "The solver library full or relative path, to be used by JOM. Leave blank to use JOM default.");
 	final private InputParameter solverName = new InputParameter ("solverName", "#select# cplex glpk ipopt xpress ", "The solver name to be used by JOM. GLPK and IPOPT are free, XPRESS and CPLEX commercial. GLPK, XPRESS and CPLEX solve linear problems w/w.o integer contraints. IPOPT is can solve nonlinear problems (if convex, returns global optimum), but cannot handle integer constraints");
 	final private InputParameter maxSolverTimeInSeconds = new InputParameter ("maxSolverTimeInSeconds", (double) -1 , "Maximum time granted to the solver to solve the problem. If this time expires, the solver returns the best solution found so far (if a feasible solution is found)");
-	final private InputParameter numFrequencySlotsPerCore = new InputParameter ("numFrequencySlotsPerCore", (int) 320 , "Number of wavelengths per link" , 1, Integer.MAX_VALUE);
+	final private InputParameter numFrequencySlotsPerCore = new InputParameter ("numFrequencySlotsPerCore", (int) 120 , "Number of wavelengths per link" , 1, Integer.MAX_VALUE);
 	final private InputParameter maxPropagationDelayMs = new InputParameter ("maxPropagationDelayMs", (double) -1 , "Maximum allowed propagation time of a lighptath in miliseconds. If non-positive, no limit is assumed");
-	final private InputParameter transponderTypesInfo = new InputParameter ("transponderTypesInfo", "10 1 1 9600 1" , "Transponder types separated by \";\" . Each type is characterized by the space-separated values: (i) Line rate in Gbps, (ii) cost of the transponder, (iii) number of slots occupied in each traversed fiber, (iv) optical reach in km (a non-positive number means no reach limit), (v) cost of the optical signal regenerator (regenerators do NOT make wavelength conversion ; if negative, regeneration is not possible).");
+	final private InputParameter transponderTypesInfo = new InputParameter ("transponderTypesInfo", "10 1 1 4000 1; 10 1 1 6000 1; 10 2 2 7000 1; 40 1 1 3000 1; 40 2 2 4000 1; 40 2 2 5000 1; 100 2 2 1000 1; 100 2 2 2000 1; 100 3 3 3000 1;" , "Transponder types separated by \";\" . Each type is characterized by the space-separated values: (i) Line rate in Gbps, (ii) cost of the transponder, (iii) number of slots occupied in each traversed fiber, (iv) optical reach in km (a non-positive number means no reach limit), (v) cost of the optical signal regenerator (regenerators do NOT make wavelength conversion ; if negative, regeneration is not possible).");
 	final private InputParameter ilpType = new InputParameter("ilpType", "#select# non-core-continuity-constraint core-continity-constraint", "Choose the type of the ILP exection");
 	
 	/** The method called by Net2Plan to run the algorithm (when the user presses the "Execute" button)
@@ -122,8 +122,7 @@ public class MCF_ILP_UPC_UPCT_Coop implements IAlgorithm
 		}
 		final int P = transponderType_p.size(); // one per potential sequence of links and transponder
 
-		/* Compute some important matrices for the formulation */
-		
+		/* Compute some important matrices for the formulation */		
 		
 		DoubleMatrix2D A_dp = DoubleFactory2D.sparse.make(D,P); /* 1 is path p is assigned to demand d */
 		DoubleMatrix2D A_ep = DoubleFactory2D.sparse.make(E,P); /* 1 if path p travserses link e */		
@@ -138,7 +137,6 @@ public class MCF_ILP_UPC_UPCT_Coop implements IAlgorithm
 				feasibleAssignment_ps [p][s] = 1;
 		}		
 		
-		
 		/* Create the optimization problem object (JOM library) */
 		OptimizationProblem op = new OptimizationProblem();
 
@@ -148,8 +146,7 @@ public class MCF_ILP_UPC_UPCT_Coop implements IAlgorithm
 		else		
 			for (int c = 0 ; c < C; c++)			
 				op.addDecisionVariable("x_ps"+Integer.toString(c), true, new int[] {P, S}, new DoubleMatrixND (new int [] {P,S}) , new DoubleMatrixND (feasibleAssignment_ps));
-		
-		
+				
 		// Set input Parameters		
 		op.setInputParameter("S", S);
 		op.setInputParameter("C", C);
