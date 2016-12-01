@@ -268,7 +268,6 @@ public class MCF_ILP_UPC_UPCT_Coop implements IAlgorithm
 				{
 					final int s = slots.get (cont);
 					WDMUtils.addLightpath(demand_p.get(p) , new WDMUtils.RSA(seqLinks_p.get(p) , s , numSlots_p.get(p)), lineRate_p.get(p));			
-					
 				}
 			}
 			else
@@ -285,6 +284,13 @@ public class MCF_ILP_UPC_UPCT_Coop implements IAlgorithm
 						Route r = WDMUtils.addLightpath(demand_p.get(p) , new WDMUtils.RSA(seqLinks_p.get(p) , s , numSlots_p.get(p)), lineRate_p.get(p));		
 						r.setAttribute("fiberCoreID", Integer.toString(c));
 					}					
+				}
+				for (Demand d : netPlan.getDemands())
+				{
+					String coreIDs = "";
+					for (Route r : d.getRoutes())					
+						coreIDs += r.getAttribute("fiberCoreID") + " ";
+					d.setAttribute("fiberCoreIDs", coreIDs);					
 				}
 			}
 			
