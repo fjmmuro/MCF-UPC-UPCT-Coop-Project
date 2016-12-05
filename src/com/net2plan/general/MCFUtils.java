@@ -38,6 +38,21 @@ public class MCFUtils
 		}
 	}
 	
+	public static String getMFCTranspondersXTAwareInfo (int C)
+	{
+		String transponders = "";
+		
+		if (C == 7)		
+			transponders += "40 2 2 13851 1; 40 2 2 5937 1; 40 2 2 2289 1; 100 3 3 5540 1; 100 2 2 2375 1; 100 2 2 916 1; 400 5 5 1385 1; 400 4 4 594 1; 400 3 3 229 1 "; 
+		else if (C == 12)
+			transponders += "40 2 2 12190 1; 40 2 2 3062 1; 40 2 2 726 1; 100 3 3 5540 1; 100 2 2 2375 1; 100 2 2 769 1; 400 5 5 1385 1; 400 4 4 594 1; 400 3 3 229 1 "; 
+		else if (C == 19)
+			transponders += "40 3 3 4755 1; 40 2 2 13851 1; 40 2 2 5937 1; 40 2 2 2289 1; 100 3 3 5540 1; 100 2 2 2375 1; 100 2 2 916 1; 400 5 5 1385 1; 400 4 4 594 1; 400 3 3 150 1 "; 
+		
+		return transponders;
+		
+	}
+	
 	
 }
 		

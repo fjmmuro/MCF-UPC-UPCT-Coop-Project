@@ -12,6 +12,9 @@
 package com.net2plan.general;
 
 
+import java.io.File;
+import java.io.FileWriter;
+import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
@@ -43,14 +46,14 @@ import cern.colt.matrix.tdouble.DoubleMatrix2D;
 public class MCF_ILP_UPC_UPCT_Coop implements IAlgorithm
 {
 	final private InputParameter k = new InputParameter ("k", (int) 5 , "Maximum number of admissible paths per input-output node pair" , 1 , Integer.MAX_VALUE);
-	final private InputParameter numCores = new InputParameter ("numCores", (int) 19 , "Number of cores per fiber");
+	final private InputParameter numCores = new InputParameter ("numCores", "#select# 7 12 19" , "Number of cores per fiber");
 	final private InputParameter wdmLayerIndex = new InputParameter ("wdmLayerIndex", (int) 0 , "Index of the WDM layer (-1 means default layer)");
 	final private InputParameter solverLibraryName = new InputParameter ("solverLibraryName", "" , "The solver library full or relative path, to be used by JOM. Leave blank to use JOM default.");
 	final private InputParameter solverName = new InputParameter ("solverName", "#select# cplex glpk ipopt xpress ", "The solver name to be used by JOM. GLPK and IPOPT are free, XPRESS and CPLEX commercial. GLPK, XPRESS and CPLEX solve linear problems w/w.o integer contraints. IPOPT is can solve nonlinear problems (if convex, returns global optimum), but cannot handle integer constraints");
 	final private InputParameter maxSolverTimeInSeconds = new InputParameter ("maxSolverTimeInSeconds", (double) -1 , "Maximum time granted to the solver to solve the problem. If this time expires, the solver returns the best solution found so far (if a feasible solution is found)");
 	final private InputParameter numFrequencySlotsPerCore = new InputParameter ("numFrequencySlotsPerCore", (int) 120 , "Number of wavelengths per link" , 1, Integer.MAX_VALUE);
 	final private InputParameter maxPropagationDelayMs = new InputParameter ("maxPropagationDelayMs", (double) -1 , "Maximum allowed propagation time of a lighptath in miliseconds. If non-positive, no limit is assumed");
-	final private InputParameter transponderTypesInfo = new InputParameter ("transponderTypesInfo", "10 1 1 4000 1; 10 1 1 6000 1; 10 2 2 7000 1; 40 1 1 3000 1; 40 2 2 4000 1; 40 2 2 5000 1; 100 2 2 1000 1; 100 2 2 2000 1; 100 3 3 3000 1;" , "Transponder types separated by \";\" . Each type is characterized by the space-separated values: (i) Line rate in Gbps, (ii) cost of the transponder, (iii) number of slots occupied in each traversed fiber, (iv) optical reach in km (a non-positive number means no reach limit), (v) cost of the optical signal regenerator (regenerators do NOT make wavelength conversion ; if negative, regeneration is not possible).");
+//	final private InputParameter transponderTypesInfo = new InputParameter ("transponderTypesInfo", "10 1 1 4000 1; 10 1 1 6000 1; 10 2 2 7000 1; 40 1 1 3000 1; 40 2 2 4000 1; 40 2 2 5000 1; 100 2 2 1000 1; 100 2 2 2000 1; 100 3 3 3000 1;" , "Transponder types separated by \";\" . Each type is characterized by the space-separated values: (i) Line rate in Gbps, (ii) cost of the transponder, (iii) number of slots occupied in each traversed fiber, (iv) optical reach in km (a non-positive number means no reach limit), (v) cost of the optical signal regenerator (regenerators do NOT make wavelength conversion ; if negative, regeneration is not possible).");
 	final private InputParameter ilpType = new InputParameter("ilpType", "#select# non-core-continuity-constraint core-continity-constraint", "Choose the type of the ILP exection");
 	
 	/** The method called by Net2Plan to run the algorithm (when the user presses the "Execute" button)
@@ -71,7 +74,7 @@ public class MCF_ILP_UPC_UPCT_Coop implements IAlgorithm
 		final int N = netPlan.getNumberOfNodes();
 		final int E = netPlan.getNumberOfLinks(wdmLayer);
 		final int D = netPlan.getNumberOfDemands(wdmLayer);
-		final int C = numCores.getInt();
+		final int C = Integer.parseInt(numCores.getString());
 		final int S = numFrequencySlotsPerCore.getInt();
 		
 		if (N == 0 || E == 0 || D == 0 || S == 0 || C == 0) throw new Net2PlanException("This algorithm requires a topology with links, slots and a demand set");
@@ -84,7 +87,8 @@ public class MCF_ILP_UPC_UPCT_Coop implements IAlgorithm
 		final boolean isNotCCC = ilpType.getString().equalsIgnoreCase("non-core-continuity-constraint");
 		
 		// Store transponder info 
-		WDMUtils.TransponderTypesInfo tpInfo = new WDMUtils.TransponderTypesInfo(transponderTypesInfo.getString());
+		
+		WDMUtils.TransponderTypesInfo tpInfo = new WDMUtils.TransponderTypesInfo(MCFUtils.getMFCTranspondersXTAwareInfo(C));
 		final int T = tpInfo.getNumTypes();	
 		
 		// Compute the candidate path list
@@ -287,13 +291,36 @@ public class MCF_ILP_UPC_UPCT_Coop implements IAlgorithm
 			}			
 		}
 		
+		
+		// Check Spectrum Clashing
 		if (isNotCCC)
 			if (C == 1)	WDMUtils.checkResourceAllocationClashing(netPlan,false,false,wdmLayer);
-		else
-			MCFUtils.checkResourceAllocationClashingPerCore(netPlan, C);
+		else if (ilpType.getString().equalsIgnoreCase("core-continuity-constraint"))
+			MCFUtils.checkResourceAllocationClashingPerCore(netPlan, C);		
 		
+		// Store results		
+		Double throughput = netPlan.getDemandTotalCarriedTraffic();
+		Double totalFSOccupied = netPlan.getVectorLinkTotalOccupiedCapacity().zSum();
 		
-		return "Ok!"; // this is the message that will be shown in the screen at the end of the algorithm
+		File file = new File(ilpType.getString()+".txt");
+		if (!file.exists()){
+			try {
+				file.createNewFile();
+			} catch (IOException e) {
+				// TODO Auto-generated catch block
+				e.printStackTrace();
+			}
+		}
+		try {
+			FileWriter fw = new FileWriter(file,true);
+			fw.write(Integer.toString(C) + " " + throughput + " " + totalFSOccupied+"\r\n");
+			fw.close();			
+		} catch (IOException e) {
+			// TODO Auto-generated catch block
+			e.printStackTrace();
+		}			
+		
+		return "Throughut (Gbps): " + throughput + " - FSOccupied (per core): " + totalFSOccupied/(double)C; // this is the message that will be shown in the screen at the end of the algorithm
 	}
 
 	/** Returns a description message that will be shown in the graphical user interface
@@ -301,7 +328,7 @@ public class MCF_ILP_UPC_UPCT_Coop implements IAlgorithm
 	@Override
 	public String getDescription()
 	{
-		return "Here you should return the algorithm description to be printed by Net2Plan graphical user interface";
+		return "Formulation-Based RSMA Algorithm availables : Non Core Continuity Constraint, Core Continuity Constraint";
 	}
 
 	
