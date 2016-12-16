@@ -32,6 +32,7 @@ import com.net2plan.interfaces.networkDesign.Route;
 import com.net2plan.utils.InputParameter;
 import com.net2plan.utils.Triple;
 import com.net2plan.utils.Constants.RoutingType;
+import com.net2plan.libraries.TrafficMatrixGenerationModels;
 import com.net2plan.libraries.WDMUtils;
 
 import cern.colt.list.tdouble.DoubleArrayList;
@@ -54,7 +55,9 @@ public class MCF_ILP_UPC_UPCT_Coop implements IAlgorithm
 	final private InputParameter numFrequencySlotsPerCore = new InputParameter ("numFrequencySlotsPerCore", (int) 120 , "Number of wavelengths per link" , 1, Integer.MAX_VALUE);
 	final private InputParameter maxPropagationDelayMs = new InputParameter ("maxPropagationDelayMs", (double) -1 , "Maximum allowed propagation time of a lighptath in miliseconds. If non-positive, no limit is assumed");
 //	final private InputParameter transponderTypesInfo = new InputParameter ("transponderTypesInfo", "10 1 1 4000 1; 10 1 1 6000 1; 10 2 2 7000 1; 40 1 1 3000 1; 40 2 2 4000 1; 40 2 2 5000 1; 100 2 2 1000 1; 100 2 2 2000 1; 100 3 3 3000 1;" , "Transponder types separated by \";\" . Each type is characterized by the space-separated values: (i) Line rate in Gbps, (ii) cost of the transponder, (iii) number of slots occupied in each traversed fiber, (iv) optical reach in km (a non-positive number means no reach limit), (v) cost of the optical signal regenerator (regenerators do NOT make wavelength conversion ; if negative, regeneration is not possible).");
-	final private InputParameter ilpType = new InputParameter("ilpType", "#select# non-core-continuity-constraint core-continity-constraint", "Choose the type of the ILP exection");
+	final private InputParameter ilpType = new InputParameter("ilpType", "#select# non-core-continuity-constraint core-continuity-constraint", "Choose the type of the ILP exection");
+	final private InputParameter trafficFactor = new InputParameter("trafficFactor", (double) 1.0, "Factor of total carried traffic (It must be lower o equal than 1) ");
+	final private InputParameter scaleTraffic = new InputParameter("scaleTraffic", (boolean) true , "Option to scale the traffic using traffic factor ");
 	
 	/** The method called by Net2Plan to run the algorithm (when the user presses the "Execute" button)
 	 * @param netPlan The input network design. The developed algorithm should modify it: it is the way the new design is returned
@@ -84,10 +87,17 @@ public class MCF_ILP_UPC_UPCT_Coop implements IAlgorithm
 		netPlan.removeAllUnicastRoutingInformation(wdmLayer);
 		netPlan.setRoutingType(RoutingType.SOURCE_ROUTING , wdmLayer);
 
+		if(scaleTraffic.getBoolean())
+		{
+			if (trafficFactor.getDouble() > 1.0) throw new Net2PlanException("Traffic Factor must be lower o equal than 1.0");
+			
+			DoubleMatrix2D newTrafficMatrix = TrafficMatrixGenerationModels.normalizationPattern_totalTraffic(netPlan.getMatrixNode2NodeOfferedTraffic(), trafficFactor.getDouble()*netPlan.getDemandTotalOfferedTraffic());	
+			netPlan.setTrafficMatrix(newTrafficMatrix);		
+		}
+		
 		final boolean isNotCCC = ilpType.getString().equalsIgnoreCase("non-core-continuity-constraint");
 		
-		// Store transponder info 
-		
+		// Store transponder info 		
 		WDMUtils.TransponderTypesInfo tpInfo = new WDMUtils.TransponderTypesInfo(MCFUtils.getMFCTranspondersXTAwareInfo(C));
 		final int T = tpInfo.getNumTypes();	
 		
@@ -289,8 +299,7 @@ public class MCF_ILP_UPC_UPCT_Coop implements IAlgorithm
 					d.setAttribute("fiberCoreIDs", coreIDs);					
 				}
 			}			
-		}
-		
+		}	
 		
 		// Check Spectrum Clashing
 		if (isNotCCC)
@@ -299,28 +308,28 @@ public class MCF_ILP_UPC_UPCT_Coop implements IAlgorithm
 			MCFUtils.checkResourceAllocationClashingPerCore(netPlan, C);		
 		
 		// Store results		
-		Double throughput = netPlan.getDemandTotalCarriedTraffic();
-		Double totalFSOccupied = netPlan.getVectorLinkTotalOccupiedCapacity().zSum();
+		final double throughput = netPlan.getDemandTotalCarriedTraffic();
+		final double totalFSOccupied = netPlan.getVectorLinkTotalOccupiedCapacity().zSum();
+		final double alpha = trafficFactor.getDouble();
+		final double totalOfferedTraffic = netPlan.getDemandTotalOfferedTraffic();
 		
-		File file = new File(ilpType.getString()+".txt");
+		File file = new File(netPlan.getNetworkName()+ilpType.getString()+".txt");
 		if (!file.exists()){
 			try {
 				file.createNewFile();
 			} catch (IOException e) {
-				// TODO Auto-generated catch block
 				e.printStackTrace();
 			}
 		}
 		try {
 			FileWriter fw = new FileWriter(file,true);
-			fw.write(Integer.toString(C) + " " + throughput + " " + totalFSOccupied+"\r\n");
+			fw.write(Integer.toString(C) + " " + throughput + " " + totalFSOccupied+ " " + totalOfferedTraffic + " " + alpha + "\r\n");
 			fw.close();			
 		} catch (IOException e) {
-			// TODO Auto-generated catch block
 			e.printStackTrace();
 		}			
 		
-		return "Throughut (Gbps): " + throughput + " - FSOccupied (per core): " + totalFSOccupied/(double)C; // this is the message that will be shown in the screen at the end of the algorithm
+		return "Offered Traffic: " + netPlan.getDemandTotalOfferedTraffic() +" - Throughut (Gbps): " + throughput + " - Total FSOccupied : " + totalFSOccupied + " - Alpha : " + trafficFactor.getDouble(); // this is the message that will be shown in the screen at the end of the algorithm
 	}
 
 	/** Returns a description message that will be shown in the graphical user interface
