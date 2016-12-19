@@ -122,7 +122,7 @@ public class MCF_ILP_UPC_UPCT_Coop implements IAlgorithm
 				for (List<Link> path : cpl.get(d))
 				{
 					if ((getLengthInKm(path) > tpInfo.getOpticalReachKm(t))) break;
-					cost_p.add(tpInfo.getCost(t));
+					cost_p.add(tpInfo.getNumSlots(t)*(double) path.size());
 					transponderType_p.add(t);
 					lineRate_p.add(tpInfo.getLineRateGbps(t));
 					numSlots_p.add(tpInfo.getNumSlots(t));
@@ -289,7 +289,7 @@ public class MCF_ILP_UPC_UPCT_Coop implements IAlgorithm
 		if (isNotCCC)
 			if (C == 1)	WDMUtils.checkResourceAllocationClashing(netPlan,false,false,wdmLayer);
 		else if (ilpType.getString().equalsIgnoreCase("core-continuity-constraint"))
-			MCFUtils.checkResourceAllocationClashingPerCore(netPlan, C);		
+			MCFUtils.checkResourceAllocationClashingPerCore(netPlan, C);
 		
 		// Store results		
 		final double throughput = netPlan.getDemandTotalCarriedTraffic();
