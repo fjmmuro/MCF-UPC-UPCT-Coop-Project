@@ -190,11 +190,15 @@ public class MCF_ILP_UPC_UPCT_Coop implements IAlgorithm
 		
 		/* Frequency-slot clashing */
 		/* \sum_t \sum_{p \in P_e, sinit {s-numSlots(t),s} x_ps <= 1, for each e, s   */
-		if(isNotCCC)
+		int Cmax = C;
+		if(isNotCCC)		
+			Cmax = 1;
+	
+		for(int c = 0; c < Cmax; c++)
 		{
 			String constraintString = "";
 			for (int t = 0; t < T ; t ++)
-			{			
+			{				
 				final String name_At_pp = "A" + Integer.toString(t) + "_pp";
 				final String name_At_s1s2 = "A" + Integer.toString(t) + "_s1s2";
 				/* At_pp, diagonal matrix, 1 if path p is associated to a transponder of type t */
@@ -207,36 +211,17 @@ public class MCF_ILP_UPC_UPCT_Coop implements IAlgorithm
 						if (s1 - cont >= 0) At_s1s2.set(s1-cont,s1,1.0); 
 				op.setInputParameter(name_At_pp, At_pp);
 				op.setInputParameter(name_At_s1s2, At_s1s2);
-				constraintString += (t == 0? "" : " + ") + "( A_ep * " + name_At_pp + " * x_ps * " + name_At_s1s2 + " ) "; 
+				if (isNotCCC)
+					constraintString += (t == 0? "" : " + ") + "( A_ep * " + name_At_pp + " * x_ps * " + name_At_s1s2 + " ) ";
+				else
+					constraintString += (t == 0? "" : " + ") + "( A_ep * " + name_At_pp + " * x_ps"+Integer.toString(c)+" * " + name_At_s1s2 + " ) "; 
 				
 			}		
-			op.addConstraint(constraintString + " <= C"); /* wavelength-clashing constraints --> sum_{p in P_e, w} x_pw <= C, for all e,w */	
-		}
-		else
-		{
-			for(int c = 0; c < C; c++)
-			{
-				String constraintString = "";
-				for (int t = 0; t < T ; t ++)
-				{				
-					final String name_At_pp = "A" + Integer.toString(t) + "_pp";
-					final String name_At_s1s2 = "A" + Integer.toString(t) + "_s1s2";
-					/* At_pp, diagonal matrix, 1 if path p is associated to a transponder of type t */
-					DoubleMatrix2D At_pp = DoubleFactory2D.sparse.make(P,P);
-					int p = 0; for (int type : transponderType_p) { if (type == t) At_pp.set(p,p,1.0); p++; }
-					/* At_s1s2, upper triangular matrix, 1 if a transponder of type with initial slot s1, occupied slots s2 (depends on number of slots occupied) */
-					DoubleMatrix2D At_s1s2 = DoubleFactory2D.sparse.make(S,S);
-					for (int s1 = 0 ; s1 < S ; s1 ++)
-						for (int cont = 0 ; cont < tpInfo.getNumSlots(t) ; cont ++)
-							if (s1 - cont >= 0) At_s1s2.set(s1-cont,s1,1.0); 
-					op.setInputParameter(name_At_pp, At_pp);
-					op.setInputParameter(name_At_s1s2, At_s1s2);
-					constraintString += (t == 0? "" : " + ") + "( A_ep * " + name_At_pp + " * x_ps"+Integer.toString(c)+" * " + name_At_s1s2 + " ) "; 
-					
-				}		
+			if (isNotCCC)
+				op.addConstraint(constraintString + " <= C"); /* wavelength-clashing constraints --> sum_{p in P_e, w} x_pw <= C, for all e,w */
+			else				
 				op.addConstraint(constraintString + " <= 1"); /* wavelength-clashing constraints --> sum_{p in P_e, w} x_pw <= C, for all e,w */	
-			}
-		}
+		}		
 		
 		op.solve(solverName.getString(), "solverLibraryName", solverLibraryName.getString() , "maxSolverTimeInSeconds" , maxSolverTimeInSeconds.getDouble());
 
