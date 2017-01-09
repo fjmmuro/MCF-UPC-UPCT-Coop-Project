@@ -55,7 +55,7 @@ public class MCF_ILP_UPC_UPCT_Coop implements IAlgorithm
 	final private InputParameter numFrequencySlotsPerCore = new InputParameter ("numFrequencySlotsPerCore", (int) 120 , "Number of wavelengths per link" , 1, Integer.MAX_VALUE);
 	final private InputParameter maxPropagationDelayMs = new InputParameter ("maxPropagationDelayMs", (double) -1 , "Maximum allowed propagation time of a lighptath in miliseconds. If non-positive, no limit is assumed");
 	final private InputParameter ilpType = new InputParameter("ilpType", "#select# non-core-continuity-constraint core-continuity-constraint", "Choose the type of the ILP exection");
-	final private InputParameter trafficFactor = new InputParameter("trafficFactor", (double) 1.0, "Factor of total carried traffic (It must be lower o equal than 1) ");
+	final private InputParameter totalTraffic = new InputParameter("totalTraffic", (double) 200, "Total Offered Traffic in Tbps ");
 	final private InputParameter scaleTraffic = new InputParameter("scaleTraffic", (boolean) true , "Option to scale the traffic using traffic factor ");
 	
 	/** The method called by Net2Plan to run the algorithm (when the user presses the "Execute" button)
@@ -81,16 +81,15 @@ public class MCF_ILP_UPC_UPCT_Coop implements IAlgorithm
 		
 		if (N == 0 || E == 0 || D == 0 || S == 0 || C == 0) throw new Net2PlanException("This algorithm requires a topology with links, slots and a demand set");
 		
-		/* Remove all routes in current netPlan object. Initialize link capacities and attributes, and demand offered traffic */
+		/* Remove all routes in current netPlan object. Initialize link capacities and attributes */
 		netPlan.removeAllMulticastTrees(wdmLayer);
 		netPlan.removeAllUnicastRoutingInformation(wdmLayer);
 		netPlan.setRoutingType(RoutingType.SOURCE_ROUTING , wdmLayer);
-
+ 
 		if(scaleTraffic.getBoolean())
 		{
-			if (trafficFactor.getDouble() > 1.0) throw new Net2PlanException("Traffic Factor must be lower o equal than 1.0");
 			
-			DoubleMatrix2D newTrafficMatrix = TrafficMatrixGenerationModels.normalizationPattern_totalTraffic(netPlan.getMatrixNode2NodeOfferedTraffic(), trafficFactor.getDouble()*netPlan.getDemandTotalOfferedTraffic());	
+			DoubleMatrix2D newTrafficMatrix = TrafficMatrixGenerationModels.normalizationPattern_totalTraffic(netPlan.getMatrixNode2NodeOfferedTraffic(), totalTraffic.getDouble()*1000);	
 			netPlan.setTrafficMatrix(newTrafficMatrix);		
 		}
 		
@@ -294,7 +293,6 @@ public class MCF_ILP_UPC_UPCT_Coop implements IAlgorithm
 		// Store results		
 		final double throughput = netPlan.getDemandTotalCarriedTraffic();
 		final double totalFSOccupied = netPlan.getVectorLinkTotalOccupiedCapacity().zSum();
-		final double alpha = trafficFactor.getDouble();
 		final double totalOfferedTraffic = netPlan.getDemandTotalOfferedTraffic();
 		
 		File file = new File(netPlan.getNetworkName()+ilpType.getString()+".txt");
@@ -307,13 +305,13 @@ public class MCF_ILP_UPC_UPCT_Coop implements IAlgorithm
 		}
 		try {
 			FileWriter fw = new FileWriter(file,true);
-			fw.write(Integer.toString(C) + " " + throughput + " " + totalFSOccupied+ " " + totalOfferedTraffic + " " + alpha + "\r\n");
+			fw.write(Integer.toString(C) + " " + throughput + " " + totalFSOccupied+ " " + totalOfferedTraffic + "\r\n");
 			fw.close();			
 		} catch (IOException e) {
 			e.printStackTrace();
 		}			
 		
-		return "Offered Traffic: " + netPlan.getDemandTotalOfferedTraffic() +" - Throughut (Gbps): " + throughput + " - Total FSOccupied : " + totalFSOccupied + " - Alpha : " + trafficFactor.getDouble(); // this is the message that will be shown in the screen at the end of the algorithm
+		return "Offered Traffic: " + netPlan.getDemandTotalOfferedTraffic() +" - Throughut (Gbps): " + throughput + " - Total FSOccupied : " + totalFSOccupied ; // this is the message that will be shown in the screen at the end of the algorithm
 	}
 
 	/** Returns a description message that will be shown in the graphical user interface
