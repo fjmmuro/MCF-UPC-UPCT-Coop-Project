@@ -12,6 +12,20 @@
 package com.net2plan.general;
 
 
+import cern.colt.list.tdouble.DoubleArrayList;
+import cern.colt.list.tint.IntArrayList;
+import cern.colt.matrix.tdouble.DoubleFactory2D;
+import cern.colt.matrix.tdouble.DoubleMatrix2D;
+import com.jom.DoubleMatrixND;
+import com.jom.OptimizationProblem;
+import com.net2plan.interfaces.networkDesign.*;
+import com.net2plan.libraries.TrafficMatrixGenerationModels;
+import com.net2plan.libraries.WDMUtils;
+import com.net2plan.utils.Constants.RoutingType;
+import com.net2plan.utils.InputParameter;
+import com.net2plan.utils.Pair;
+import com.net2plan.utils.Triple;
+
 import java.io.File;
 import java.io.FileWriter;
 import java.io.IOException;
@@ -20,26 +34,11 @@ import java.util.Collection;
 import java.util.List;
 import java.util.Map;
 
-import com.jom.DoubleMatrixND;
-import com.jom.OptimizationProblem;
-import com.net2plan.interfaces.networkDesign.*;
-import com.net2plan.utils.InputParameter;
-import com.net2plan.utils.Pair;
-import com.net2plan.utils.Triple;
-import com.net2plan.utils.Constants.RoutingType;
-import com.net2plan.libraries.TrafficMatrixGenerationModels;
-import com.net2plan.libraries.WDMUtils;
-
-import cern.colt.list.tdouble.DoubleArrayList;
-import cern.colt.list.tint.IntArrayList;
-import cern.colt.matrix.tdouble.DoubleFactory2D;
-import cern.colt.matrix.tdouble.DoubleMatrix2D;
-
 
 /** This is a template to be used in the lab work, a starting point for the students to develop their programs
  *
  */
-public class MCF_ILP_UPC_UPCT_Coop implements IAlgorithm
+public class MCF_Heuristic_UPC_UPCT_Coop implements IAlgorithm
 {
 	final private InputParameter k = new InputParameter ("k", (int) 5 , "Maximum number of admissible paths per input-output node pair" , 1 , Integer.MAX_VALUE);
 	final private InputParameter numCores = new InputParameter ("numCores", "#select# 7 12 19" , "Number of cores per fiber");
@@ -144,97 +143,13 @@ public class MCF_ILP_UPC_UPCT_Coop implements IAlgorithm
 				feasibleAssignment_ps [p][s] = 1;
 		}
 
-		/* Create the optimization problem object (JOM library) */
-		OptimizationProblem op = new OptimizationProblem();
-
-		/* Add the decision variables to the problem */
-		if (isNotCCC)
-			op.addDecisionVariable("x_ps", true, new int[] {P, S}, new DoubleMatrixND (new int [] {P,S}) , new DoubleMatrixND (feasibleAssignment_ps)); /* 1 if lightpath d(p) is routed through path p in wavelength w */
-		else
-			for (int c = 0 ; c < C; c++)
-				op.addDecisionVariable("x_ps"+Integer.toString(c), true, new int[] {P, S}, new DoubleMatrixND (new int [] {P,S}) , new DoubleMatrixND (feasibleAssignment_ps));
-
-		// Set input Parameters
-		op.setInputParameter("S", S);
-		op.setInputParameter("C", C);
-		op.setInputParameter("h_d", netPlan.getVectorDemandOfferedTraffic(), "row");
-		op.setInputParameter("rate_p", lineRate_p , "row");
-		op.setInputParameter("c_p", cost_p , "row");
-		op.setInputParameter("A_dp", A_dp);
-		op.setInputParameter("A_ep", A_ep); //Equal to route and segment indexes
-
-		// Set Objective Function
-		if(isNotCCC) op.setObjectiveFunction("minimize", "sum(c_p * x_ps)"); /* sum_ps (c_p . x_ps) */
-		else
-		{
-			String objectiveFunction = "";
-			for (int c = 0; c < C ; c++)
-				objectiveFunction += (c == 0? "" : " + ") + "sum(c_p * x_ps" + Integer.toString(c) + ")" ;
-			op.setObjectiveFunction("minimize", objectiveFunction);     /* sum_ps (c_p . x_pcs) */
-		}
-
-		if(isNotCCC) op.addConstraint("A_dp * diag (rate_p) * x_ps * ones([S; 1]) >= h_d'"); /* each lightpath d: is carried in exactly one p-w --> sum_{p in P_d, w} x_dp <= 1, for all d */
-		else
-		{
-			String constraintString = "";
-			for (int c = 0; c < C; c++)
-				constraintString += (c == 0? "" : " + ") + "A_dp * diag (rate_p) * x_ps" + Integer.toString(c) + " * ones([S; 1]) " ;
-			op.addConstraint(constraintString +" >= h_d'");
-		}
-
-		/* Frequency-slot clashing */
-		/* \sum_t \sum_{p \in P_e, sinit {s-numSlots(t),s} x_ps <= 1, for each e, s   */
-
-		for(int c = 0; c < C; c++)
-		{
-			String constraintString = "";
-			for (int t = 0; t < T ; t ++)
-			{
-				final String name_At_pp = "A" + Integer.toString(t) + "_pp";
-				final String name_At_s1s2 = "A" + Integer.toString(t) + "_s1s2";
-				/* At_pp, diagonal matrix, 1 if path p is associated to a transponder of type t */
-				DoubleMatrix2D At_pp = DoubleFactory2D.sparse.make(P,P);
-				int p = 0;
-				for (int type : transponderType_p)
-					if (type == t)
-						At_pp.set(p,p,1.0); p++;
-
-				/* At_s1s2, upper triangular matrix, 1 if a transponder of type with initial slot s1, occupied slots s2 (depends on number of slots occupied) */
-				DoubleMatrix2D At_s1s2 = DoubleFactory2D.sparse.make(S,S);
-				for (int s1 = 0 ; s1 < S ; s1 ++)
-					for (int cont = 0 ; cont < tpInfo.getNumSlots(t) ; cont ++)
-						if (s1 - cont >= 0) At_s1s2.set(s1-cont,s1,1.0);
-
-				op.setInputParameter(name_At_pp, At_pp);
-				op.setInputParameter(name_At_s1s2, At_s1s2);
-
-				if (isNotCCC) constraintString += (t == 0? "" : " + ") + "( A_ep * " + name_At_pp + " * x_ps * " + name_At_s1s2 + " ) ";
-				else constraintString += (t == 0? "" : " + ") + "( A_ep * " + name_At_pp + " * x_ps"+Integer.toString(c)+" * " + name_At_s1s2 + " ) ";
-
-			}
-			op.addConstraint(constraintString + " <= 1"); /* wavelength-clashing constraints --> sum_{p in P_e, w} x_pw <= C, for all e,w */
-			if (isNotCCC) c = C;
-		}
-
-
-		op.solve(solverName.getString(), "solverLibraryName", solverLibraryName.getString() , "maxSolverTimeInSeconds" , maxSolverTimeInSeconds.getDouble());
-
-		/* If a feasible solution was not found, quit (this may also happen if after the maximum solver time no feasible solution is found) */
-		if (!op.solutionIsFeasible()) throw new Net2PlanException("A feasible solution was not found");
 
 		/* Retrieve the optimum solutions */
 		DoubleMatrix2D x_ps = DoubleFactory2D.sparse.make(P,S);
 		List<DoubleMatrix2D> x_psc = new ArrayList<DoubleMatrix2D>();
 
-		if(isNotCCC) x_ps = op.getPrimalSolution("x_ps").view2D();
-		else
-		{
-			for (int c = 0; c < C; c++)
-			{
-				String name = "x_ps"+Integer.toString(c);
-				x_psc.add(op.getPrimalSolution(name).view2D());
-			}
-		}
+
+
 
 		/* Create the lightpaths according to the solutions given */
 		WDMUtils.setFibersNumFrequencySlots(netPlan , numFrequencySlotsPerCore.getInt() , wdmLayer);
