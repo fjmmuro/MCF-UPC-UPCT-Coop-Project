@@ -29,7 +29,9 @@ import com.net2plan.interfaces.networkDesign.Net2PlanException;
 import com.net2plan.interfaces.networkDesign.NetPlan;
 import com.net2plan.interfaces.networkDesign.NetworkLayer;
 import com.net2plan.interfaces.networkDesign.Route;
+import com.net2plan.interfaces.networkDesign.Node;
 import com.net2plan.utils.InputParameter;
+import com.net2plan.utils.Pair;
 import com.net2plan.utils.Triple;
 import com.net2plan.utils.Constants.RoutingType;
 import com.net2plan.libraries.TrafficMatrixGenerationModels;
@@ -54,7 +56,7 @@ public class MCF_ILP_UPC_UPCT_Coop implements IAlgorithm
 	final private InputParameter maxSolverTimeInSeconds = new InputParameter ("maxSolverTimeInSeconds", (double) -1 , "Maximum time granted to the solver to solve the problem. If this time expires, the solver returns the best solution found so far (if a feasible solution is found)");
 	final private InputParameter numFrequencySlotsPerCore = new InputParameter ("numFrequencySlotsPerCore", (int) 120 , "Number of wavelengths per link" , 1, Integer.MAX_VALUE);
 	final private InputParameter maxPropagationDelayMs = new InputParameter ("maxPropagationDelayMs", (double) -1 , "Maximum allowed propagation time of a lighptath in miliseconds. If non-positive, no limit is assumed");
-	final private InputParameter ilpType = new InputParameter("ilpType", "#select# non-core-continuity-constraint core-continuity-constraint", "Choose the type of the ILP exection");
+	final private InputParameter ilpType = new InputParameter("ilpType", "#select# fully-non-blocking core-continuity-constraint", "Choose the type of the ILP exection");
 	final private InputParameter totalTraffic = new InputParameter("totalTraffic", (double) 200, "Total Offered Traffic in Tbps ");
 	final private InputParameter scaleTraffic = new InputParameter("scaleTraffic", (boolean) true , "Option to scale the traffic using traffic factor ");
 	
@@ -93,15 +95,14 @@ public class MCF_ILP_UPC_UPCT_Coop implements IAlgorithm
 			netPlan.setTrafficMatrix(newTrafficMatrix);		
 		}
 		
-		final boolean isNotCCC = ilpType.getString().equalsIgnoreCase("non-core-continuity-constraint");
+		final boolean isNotCCC = ilpType.getString().equalsIgnoreCase("fully-non-blocking");
 		
 		// Store transponder info 		
 		WDMUtils.TransponderTypesInfo tpInfo = new WDMUtils.TransponderTypesInfo(MCFUtils.getMFCTranspondersXTAwareInfo(C));
 		final int T = tpInfo.getNumTypes();	
 		
 		// Compute the candidate path list
-		final Map<Demand,List<List<Link>>> cpl = netPlan.computeUnicastCandidatePathList(wdmLayer , 
-				netPlan.getVectorLinkLengthInKm(wdmLayer).toArray(), "K" , "" + k.getInt() , "maxLengthInKm" , ""+tpInfo.getMaxOpticalReachKm(), "maxPropDelayInMs" , "" + maxPropagationDelayMs.getDouble());
+		final Map<Pair<Node,Node>,List<List<Link>>> cpl = netPlan.computeUnicastCandidatePathList(netPlan.getVectorLinkLengthInKm(), k.getInt() , tpInfo.getMaxOpticalReachKm(), -1,maxPropagationDelayMs.getDouble(),-1,1,-1,null,wdmLayer);
  
 		// Initialize lists needed for ILP 
 		final int maximumNumberOfPaths = T*k.getInt()*D;
@@ -115,10 +116,11 @@ public class MCF_ILP_UPC_UPCT_Coop implements IAlgorithm
 		for (Demand d : netPlan.getDemands())
 		{
 			boolean atLeastOnePath = false;
+			Pair<Node,Node> nodes = Pair.of(d.getIngressNode(),d.getEgressNode());
 			
 			for (int t = 0; t < T; t++)
 			{			
-				for (List<Link> path : cpl.get(d))
+				for (List<Link> path : cpl.get(nodes))
 				{
 					if ((getLengthInKm(path) > tpInfo.getOpticalReachKm(t))) break;
 					cost_p.add(tpInfo.getNumSlots(t)*(double) path.size());
@@ -169,16 +171,18 @@ public class MCF_ILP_UPC_UPCT_Coop implements IAlgorithm
 		op.setInputParameter("A_ep", A_ep); //Equal to route and segment indexes
 		
 		// Set Objective Function
-		if(isNotCCC) op.setObjectiveFunction("minimize", "sum(c_p * x_ps)"); /* sum_ps (c_p . x_ps) */
+		if(isNotCCC)
+			op.setObjectiveFunction("minimize", "sum(c_p * x_ps)"); /* sum_ps (c_p . x_ps) */
 		else
 		{
 			String objectiveFuntion = "";
 			for (int c = 0; c < C ; c++)			
-				objectiveFuntion += (c == 0? "" : " + ") + "sum(c_p * x_ps" + Integer.toString(c) + ")" ;			
+				objectiveFuntion += (c == 0? "" : " + ") + "sum(c_p * x_ps" + Integer.toString(c) + ")" ;
 			op.setObjectiveFunction("minimize", objectiveFuntion);     /* sum_ps (c_p . x_pcs) */
 		}
 		
-		if(isNotCCC) op.addConstraint("A_dp * diag (rate_p) * x_ps * ones([S; 1]) >= h_d'"); /* each lightpath d: is carried in exactly one p-w --> sum_{p in P_d, w} x_dp <= 1, for all d */
+		if(isNotCCC)
+			op.addConstraint("A_dp * diag (rate_p) * x_ps * ones([S; 1]) >= h_d'"); /* each lightpath d: is carried in exactly one p-w --> sum_{p in P_d, w} x_dp <= 1, for all d */
 		else 		
 		{
 			String constraintString = "";
@@ -202,12 +206,21 @@ public class MCF_ILP_UPC_UPCT_Coop implements IAlgorithm
 				final String name_At_s1s2 = "A" + Integer.toString(t) + "_s1s2";
 				/* At_pp, diagonal matrix, 1 if path p is associated to a transponder of type t */
 				DoubleMatrix2D At_pp = DoubleFactory2D.sparse.make(P,P);
-				int p = 0; for (int type : transponderType_p) { if (type == t) At_pp.set(p,p,1.0); p++; }
+				int p = 0;
+				for (int type : transponderType_p)
+				{
+					if (type == t)
+						At_pp.set(p, p, 1.0);
+					p++;
+
+				}
+
 				/* At_s1s2, upper triangular matrix, 1 if a transponder of type with initial slot s1, occupied slots s2 (depends on number of slots occupied) */
 				DoubleMatrix2D At_s1s2 = DoubleFactory2D.sparse.make(S,S);
 				for (int s1 = 0 ; s1 < S ; s1 ++)
 					for (int cont = 0 ; cont < tpInfo.getNumSlots(t) ; cont ++)
-						if (s1 - cont >= 0) At_s1s2.set(s1-cont,s1,1.0); 
+						if (s1 - cont >= 0) At_s1s2.set(s1-cont,s1,1.0);
+
 				op.setInputParameter(name_At_pp, At_pp);
 				op.setInputParameter(name_At_s1s2, At_s1s2);
 				if (isNotCCC)
@@ -291,9 +304,9 @@ public class MCF_ILP_UPC_UPCT_Coop implements IAlgorithm
 			MCFUtils.checkResourceAllocationClashingPerCore(netPlan, C);
 		
 		// Store results		
-		final double throughput = netPlan.getDemandTotalCarriedTraffic();
-		final double totalFSOccupied = netPlan.getVectorLinkTotalOccupiedCapacity().zSum();
-		final double totalOfferedTraffic = netPlan.getDemandTotalOfferedTraffic();
+		final double throughput = netPlan.getVectorDemandCarriedTraffic().zSum();
+		final double totalFSOccupied = netPlan.getVectorLinkOccupiedCapacity().zSum();
+		final double totalOfferedTraffic = netPlan.getVectorDemandOfferedTraffic().zSum();
 		
 		File file = new File(netPlan.getNetworkName()+ilpType.getString()+".txt");
 		if (!file.exists()){
@@ -311,7 +324,7 @@ public class MCF_ILP_UPC_UPCT_Coop implements IAlgorithm
 			e.printStackTrace();
 		}			
 		
-		return "Offered Traffic: " + netPlan.getDemandTotalOfferedTraffic() +" - Throughut (Gbps): " + throughput + " - Total FSOccupied : " + totalFSOccupied ; // this is the message that will be shown in the screen at the end of the algorithm
+		return "Offered Traffic: " + throughput +" - Throughut (Gbps): " + throughput + " - Total FSOccupied : " + totalFSOccupied ; // this is the message that will be shown in the screen at the end of the algorithm
 	}
 
 	/** Returns a description message that will be shown in the graphical user interface
