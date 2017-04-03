@@ -12,27 +12,18 @@
 package com.net2plan.general;
 
 
-import cern.colt.list.tdouble.DoubleArrayList;
-import cern.colt.list.tint.IntArrayList;
 import cern.colt.matrix.tdouble.DoubleFactory2D;
 import cern.colt.matrix.tdouble.DoubleMatrix2D;
-import com.jom.DoubleMatrixND;
-import com.jom.OptimizationProblem;
 import com.net2plan.interfaces.networkDesign.*;
 import com.net2plan.libraries.TrafficMatrixGenerationModels;
 import com.net2plan.libraries.WDMUtils;
+import com.net2plan.utils.*;
 import com.net2plan.utils.Constants.RoutingType;
-import com.net2plan.utils.InputParameter;
-import com.net2plan.utils.Pair;
-import com.net2plan.utils.Triple;
 
 import java.io.File;
 import java.io.FileWriter;
 import java.io.IOException;
-import java.util.ArrayList;
-import java.util.Collection;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
 
 
 /** This is a template to be used in the lab work, a starting point for the students to develop their programs
@@ -43,13 +34,9 @@ public class MCF_Heuristic_UPC_UPCT_Coop implements IAlgorithm
 	final private InputParameter k = new InputParameter ("k", (int) 5 , "Maximum number of admissible paths per input-output node pair" , 1 , Integer.MAX_VALUE);
 	final private InputParameter numCores = new InputParameter ("numCores", "#select# 7 12 19" , "Number of cores per fiber");
 	final private InputParameter wdmLayerIndex = new InputParameter ("wdmLayerIndex", (int) 0 , "Index of the WDM layer (-1 means default layer)");
-	final private InputParameter solverLibraryName = new InputParameter ("solverLibraryName", "" , "The solver library full or relative path, to be used by JOM. Leave blank to use JOM default.");
-	final private InputParameter solverName = new InputParameter ("solverName", "#select# cplex glpk ipopt xpress ", "The solver name to be used by JOM. GLPK and IPOPT are free, XPRESS and CPLEX commercial. GLPK, XPRESS and CPLEX solve linear problems w/w.o integer contraints. IPOPT is can solve nonlinear problems (if convex, returns global optimum), but cannot handle integer constraints");
-	final private InputParameter maxSolverTimeInSeconds = new InputParameter ("maxSolverTimeInSeconds", (double) -1 , "Maximum time granted to the solver to solve the problem. If this time expires, the solver returns the best solution found so far (if a feasible solution is found)");
-	final private InputParameter numFrequencySlotsPerCore = new InputParameter ("numFrequencySlotsPerCore", (int) 120 , "Number of wavelengths per link" , 1, Integer.MAX_VALUE);
+    final private InputParameter numFrequencySlotsPerCore = new InputParameter ("numFrequencySlotsPerCore", (int) 120 , "Number of wavelengths per link" , 1, Integer.MAX_VALUE);
 	final private InputParameter maxPropagationDelayMs = new InputParameter ("maxPropagationDelayMs", (double) -1 , "Maximum allowed propagation time of a lighptath in miliseconds. If non-positive, no limit is assumed");
-//	final private InputParameter transponderTypesInfo = new InputParameter ("transponderTypesInfo", "10 1 1 4000 1; 10 1 1 6000 1; 10 2 2 7000 1; 40 1 1 3000 1; 40 2 2 4000 1; 40 2 2 5000 1; 100 2 2 1000 1; 100 2 2 2000 1; 100 3 3 3000 1;" , "Transponder types separated by \";\" . Each type is characterized by the space-separated values: (i) Line rate in Gbps, (ii) cost of the transponder, (iii) number of slots occupied in each traversed fiber, (iv) optical reach in km (a non-positive number means no reach limit), (v) cost of the optical signal regenerator (regenerators do NOT make wavelength conversion ; if negative, regeneration is not possible).");
-	final private InputParameter ilpType = new InputParameter("ilpType", "#select# fully-non-blocking core-continuity-constraint", "Choose the type of the ILP exection");
+	final private InputParameter roadmType = new InputParameter("roadmType", "#select# fully-non-blocking core-continuity-constraint", "Choose the type of the ROADM type");
 	final private InputParameter totalTraffic = new InputParameter("totalTraffic", (double) 200.0, "Total offered traffic in the network in Tbps ");
 	final private InputParameter scaleTraffic = new InputParameter("scaleTraffic", (boolean) true , "Option to scale the traffic using traffic factor ");
 
@@ -59,6 +46,8 @@ public class MCF_Heuristic_UPC_UPCT_Coop implements IAlgorithm
 	 * @param net2planParameters Pair name-value for some general parameters of Net2Plan
 	 * @return
 	 */
+
+
 	@Override
 	public String executeAlgorithm(NetPlan netPlan, Map<String, String> algorithmParameters, Map<String, String> net2planParameters)
 	{
@@ -76,7 +65,7 @@ public class MCF_Heuristic_UPC_UPCT_Coop implements IAlgorithm
 
 		if (N == 0 || E == 0 || D == 0 || S == 0 || C == 0) throw new Net2PlanException("This algorithm requires a topology with links, slots and a demand set");
 
-		final boolean isNotCCC = ilpType.getString().equalsIgnoreCase("fully-non-blocking");
+		final boolean isNotCCC = roadmType.getString().equalsIgnoreCase("fully-non-blocking");
 
 		/* Remove all routes in current netPlan object. Initialize link capacities and attributes, and demand offered traffic */
 		netPlan.removeAllMulticastTrees(wdmLayer);
@@ -89,12 +78,12 @@ public class MCF_Heuristic_UPC_UPCT_Coop implements IAlgorithm
 
 		if(scaleTraffic.getBoolean())
 		{
-
 			DoubleMatrix2D newTrafficMatrix = TrafficMatrixGenerationModels.normalizationPattern_totalTraffic(netPlan.getMatrixNode2NodeOfferedTraffic(), 1000*totalTraffic.getDouble());
 			netPlan.setTrafficMatrix(newTrafficMatrix);
 		}
 		// Compute the candidate path list
 		final  Map<Pair<Node, Node>, List<List<Link>>> cpl = netPlan.computeUnicastCandidatePathList(netPlan.getVectorLinkLengthInKm(wdmLayer), k.getInt(), tpInfo.getMaxOpticalReachKm(),-1, maxPropagationDelayMs.getDouble(),-1,-1,-1,null,wdmLayer);
+		WDMUtils.setFibersNumFrequencySlots(netPlan , numFrequencySlotsPerCore.getInt() , wdmLayer);
 
 		// Initialize lists needed for ILP
 		final int maximumNumberOfPaths = T*k.getInt()*D;
@@ -104,11 +93,14 @@ public class MCF_Heuristic_UPC_UPCT_Coop implements IAlgorithm
 		List<Integer> numSlots_p = new ArrayList<Integer> (maximumNumberOfPaths);
 		List<Demand> demand_p = new ArrayList<Demand> (maximumNumberOfPaths);
 		List<List<Link>> seqLinks_p = new ArrayList<List<Link>>(maximumNumberOfPaths);
+		Map<Demand,List<Integer>> demand2PathListMap = new HashMap<Demand,List<Integer>> ();
 
 		for (Demand d : netPlan.getDemands())
 		{
 			boolean atLeastOnePath = false;
 			Pair<Node,Node> nodes = Pair.of(d.getIngressNode(),d.getEgressNode());
+			List<Integer> pathListThisDemand = new LinkedList<Integer> ();
+			demand2PathListMap.put(d , pathListThisDemand);
 
 			for (int t = 0; t < T; t++)
 			{
@@ -121,6 +113,8 @@ public class MCF_Heuristic_UPC_UPCT_Coop implements IAlgorithm
 					numSlots_p.add(tpInfo.getNumSlots(t));
 					demand_p.add(d);
 					seqLinks_p.add(path);
+					final int pathIndex = cost_p.size()-1;
+					pathListThisDemand.add(pathIndex);
 					atLeastOnePath = true;
 				}
 			}
@@ -128,85 +122,128 @@ public class MCF_Heuristic_UPC_UPCT_Coop implements IAlgorithm
 		}
 		final int P = transponderType_p.size(); // one per potential sequence of links and transponder
 
-		/* Compute some important matrices for the formulation */
+		DoubleMatrix2D frequencySlot2FiberOccupancy_se = DoubleFactory2D.dense.make(S*C , E);
+		List<DoubleMatrix2D> frequencySlot2FiberOccupancy_sec = new ArrayList<>(C);
+		if(!isNotCCC)
+			for (int c = 0; c < C; c++)
+				frequencySlot2FiberOccupancy_sec.add(DoubleFactory2D.dense.make(S, E));
 
-		DoubleMatrix2D A_dp = DoubleFactory2D.sparse.make(D,P); /* 1 is path p is assigned to demand d */
-		DoubleMatrix2D A_ep = DoubleFactory2D.sparse.make(E,P); /* 1 if path p travserses link e */
+		boolean atLeastOneLpAdded = false;
 
-		double [][] feasibleAssignment_ps = new double [P][S];
-
-		for (int p = 0; p < P; p++)
+		Set<Integer> demandIndexesNotToTry = new HashSet<Integer> ();
+		double totalCost = 0;
+		do
 		{
-			A_dp.set(demand_p.get(p).getIndex(), p, 1.0);
-			for (Link e : seqLinks_p.get(p)) A_ep.set (e.getIndex() , p , 1.0);
-			for (int s = 0; s < S + 1 - numSlots_p.get(p) ; s ++)
-				feasibleAssignment_ps [p][s] = 1;
-		}
+			double [] b_d = getVectorDemandAverageAllStatesBlockedTraffic (netPlan);
+			int [] demandIndexes = DoubleUtils.sortIndexes(b_d , Constants.OrderingType.DESCENDING);
+			atLeastOneLpAdded = false;
 
-
-		/* Retrieve the optimum solutions */
-		DoubleMatrix2D x_ps = DoubleFactory2D.sparse.make(P,S);
-		List<DoubleMatrix2D> x_psc = new ArrayList<DoubleMatrix2D>();
-
-
-
-
-		/* Create the lightpaths according to the solutions given */
-		WDMUtils.setFibersNumFrequencySlots(netPlan , numFrequencySlotsPerCore.getInt() , wdmLayer);
-		IntArrayList slots = new IntArrayList (); DoubleArrayList vals = new DoubleArrayList ();
-
-		for (int p = 0; p < P ; p ++)
-		{
-			if(isNotCCC)
+			for (int demandIndex : demandIndexes)
 			{
-				slots.clear(); vals.clear();
-				x_ps.viewRow(p).getNonZeros(slots , vals);
+				final Demand d = netPlan.getDemand(demandIndex , wdmLayer);
 
-				if (slots.size() == 0) continue;
-				for (int cont = 0 ; cont < slots.size() ; cont ++)
-				{
-					final int s = slots.get (cont);
-					WDMUtils.addLightpath(demand_p.get(p) , new WDMUtils.RSA(seqLinks_p.get(p) , s , numSlots_p.get(p)), lineRate_p.get(p));
+				/* Not to try a demand if already fully satisfied or we tried and could not add a lp to it */
+				if (demandIndexesNotToTry.contains(demandIndex)) continue;
+
+				/* If the demand is already fully satisfied, skip it */
+				if (d.getBlockedTraffic() < 1e-3) {
+					demandIndexesNotToTry.add(demandIndex); continue;
 				}
-			}
-			else
-			{
-				for (int c = 0; c < C; c++)
-				{
-					slots.clear(); vals.clear();
-					x_psc.get(c).viewRow(p).getNonZeros(slots , vals);
+				/* Try all the possible routes and all the possible transpoder types. Take the solution with the best
+				 * performance metric (average extra carried traffic / transponder cost) */
+				WDMUtils.RSA best_rsa = null;
+				double best_performanceMetric = 0;
+				int best_pathIndex = -1;
+				int best_core = -1;
+				int best_slotID = -1;
+				List<Link> best_route = null;
 
-					if (slots.size() == 0) continue;
-					for (int cont = 0 ; cont < slots.size() ; cont ++)
+				for (int pathIndex : demand2PathListMap.get (d))
+				{
+					List<Link> firstPath = seqLinks_p.get(pathIndex);
+					int slotId = -1;
+					int current_core = -1;
+
+					if(isNotCCC)
+						slotId = WDMUtils.spectrumAssignment_firstFit(firstPath,frequencySlot2FiberOccupancy_se , numSlots_p.get(pathIndex));
+					else
 					{
-						final int s = slots.get (cont);
-						Route r = WDMUtils.addLightpath(demand_p.get(p) , new WDMUtils.RSA(seqLinks_p.get(p) , s , numSlots_p.get(p)), lineRate_p.get(p));
-						r.setAttribute("fiberCoreID", Integer.toString(c));
+						for(int c = 0; c < C; c++)
+						{
+							slotId = WDMUtils.spectrumAssignment_firstFit(firstPath, frequencySlot2FiberOccupancy_sec.get(c), numSlots_p.get(pathIndex));
+							current_core = c;
+							if (slotId != -1) break;
+						}
+					}
+
+					/* Check if the path is not feasible */
+					if (slotId == -1) continue;
+
+					/* If the performance metric is better than existing, this is the best choice */
+//					final double extraCarriedTraffic = getAverageAllStatesExtraCarriedTrafficAfterPotentialAllocation (d , lineRate_p.get(pathIndex) , seqLinks_p.get(pathIndex));
+					final double extraCarriedTraffic = Math.min(d.getBlockedTraffic() , lineRate_p.get(pathIndex));
+					final double performanceIndicator = extraCarriedTraffic / cost_p.get(pathIndex);
+					if (performanceIndicator > best_performanceMetric)
+					{
+						best_performanceMetric = performanceIndicator;
+						best_rsa = new WDMUtils.RSA(firstPath , slotId , numSlots_p.get(pathIndex) , null);
+						best_core = current_core;
+						best_route = firstPath;
+						best_pathIndex = pathIndex;
+						best_slotID = slotId;
 					}
 				}
-				for (Demand d : netPlan.getDemands())
-				{
-					String coreIDs = "";
-					for (Route r : d.getRoutes())
-						coreIDs += r.getAttribute("fiberCoreID") + " ";
-					d.setAttribute("fiberCoreIDs", coreIDs);
-				}
-			}
-		}
 
+				/* No lp could be added to this demand, try with the next */
+				if (best_pathIndex == -1) { demandIndexesNotToTry.add(d.getIndex()); continue; }
+
+				/* Add the lightpath to the design */
+				atLeastOneLpAdded = true;
+				totalCost += cost_p.get(best_pathIndex);
+
+				if(isNotCCC)
+				{
+					final Route lp = WDMUtils.addLightpath(d , best_rsa , lineRate_p.get(best_pathIndex));
+					WDMUtils.allocateResources(best_rsa , frequencySlot2FiberOccupancy_se , null);
+				}
+				else
+				{
+					if (best_core != -1)
+					{
+						final Route lp = WDMUtils.addLightpath(d, best_rsa, lineRate_p.get(best_pathIndex));
+						WDMUtils.allocateResources(best_rsa, frequencySlot2FiberOccupancy_sec.get(best_core), null);
+						lp.setAttribute("coreID = ", Integer.toString(best_core));
+					}
+				}
+
+//				System.out.println("Demand index: " + demandIndex);
+//				System.out.println("Path size: " + lp.getNumberOfHops());
+////				System.out.println("Slot ID: " + best_rsa.get);
+//				System.out.println("Num slots :" + numSlots_p.get(best_pathIndex));
+//				System.out.println("Line rate : " + lineRate_p.get(best_pathIndex));
+
+				break;
+			}
+
+		} while (atLeastOneLpAdded);
+
+//		WDMUtils.checkResourceAllocationClashing(netPlan,true,true,wdmLayer);
+
+		// Check Spectrum Clashing
 		// Check Spectrum Clashing
 		if (isNotCCC)
 			if (C == 1)	WDMUtils.checkResourceAllocationClashing(netPlan,false,false,wdmLayer);
-		else if (ilpType.getString().equalsIgnoreCase("core-continuity-constraint"))
+		else if (roadmType.getString().equalsIgnoreCase("core-continuity-constraint"))
 			MCFUtils.checkResourceAllocationClashingPerCore(netPlan, C);
 
 		// Store results
 		final double throughput = netPlan.getVectorRouteCarriedTraffic().zSum();
 		final double totalFSOccupied = netPlan.getVectorLinkOccupiedCapacity().zSum();
-		final double alpha = totalTraffic.getDouble();
 		final double totalOfferedTraffic = netPlan.getVectorDemandOfferedTraffic().zSum();
 
-		File file = new File(netPlan.getNetworkName()+ilpType.getString()+".txt");
+		if (throughput < totalTraffic.getDouble()*1000) throw new Net2PlanException("Maximum traffic limit reached");
+
+		File file = new File(netPlan.getNetworkName()+ roadmType.getString()+".txt");
 		if (!file.exists()){
 			try {
 				file.createNewFile();
@@ -216,7 +253,7 @@ public class MCF_Heuristic_UPC_UPCT_Coop implements IAlgorithm
 		}
 		try {
 			FileWriter fw = new FileWriter(file,true);
-			fw.write(Integer.toString(C) + " " + throughput + " " + totalFSOccupied+ " " + totalOfferedTraffic + " " + alpha + "\r\n");
+			fw.write(Integer.toString(C) + " " + throughput + " " + totalFSOccupied+ " " + totalOfferedTraffic + " \r\n");
 			fw.close();
 		} catch (IOException e) {
 			e.printStackTrace();
@@ -246,10 +283,22 @@ public class MCF_Heuristic_UPC_UPCT_Coop implements IAlgorithm
 	private static double getLengthInKm (Collection<Link> r) 
 	{
 		double res = 0;
-		for (Link e : r) 
-			res += e.getLengthInKm(); 
+		for (Link e : r)
+			res += e.getLengthInKm();
 		return res; 
 	}
+
+	/* A vector with the blocked traffic for each demand (in the single-SRG failure tolerance, is averaged for each state) */
+	private double [] getVectorDemandAverageAllStatesBlockedTraffic (NetPlan netPlan)
+	{
+		double [] res = new double [netPlan.getNumberOfDemands()];
+		for (Demand d : netPlan.getDemands())
+			res [d.getIndex()] = d.getBlockedTraffic();
+
+		return res;
+	}
+
+
 
 	
 }
