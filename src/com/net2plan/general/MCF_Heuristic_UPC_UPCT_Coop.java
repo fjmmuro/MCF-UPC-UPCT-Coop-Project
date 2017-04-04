@@ -130,7 +130,7 @@ public class MCF_Heuristic_UPC_UPCT_Coop implements IAlgorithm
 
 		boolean atLeastOneLpAdded = false;
 
-		Set<Integer> demandIndexesNotToTry = new HashSet<Integer> ();
+		Set<Integer> demandIndexesNotToTry = new HashSet<> ();
 		double totalCost = 0;
 		do
 		{
@@ -188,9 +188,7 @@ public class MCF_Heuristic_UPC_UPCT_Coop implements IAlgorithm
 						best_performanceMetric = performanceIndicator;
 						best_rsa = new WDMUtils.RSA(firstPath , slotId , numSlots_p.get(pathIndex) , null);
 						best_core = current_core;
-						best_route = firstPath;
 						best_pathIndex = pathIndex;
-						best_slotID = slotId;
 					}
 				}
 
@@ -243,7 +241,7 @@ public class MCF_Heuristic_UPC_UPCT_Coop implements IAlgorithm
 
 		if (throughput < totalTraffic.getDouble()*1000) throw new Net2PlanException("Maximum traffic limit reached");
 
-		File file = new File(netPlan.getNetworkName()+ roadmType.getString()+".txt");
+		File file = new File("heuristic_"+ netPlan.getNetworkName()+ roadmType.getString()+".txt");
 		if (!file.exists()){
 			try {
 				file.createNewFile();
@@ -267,7 +265,7 @@ public class MCF_Heuristic_UPC_UPCT_Coop implements IAlgorithm
 	@Override
 	public String getDescription()
 	{
-		return "Formulation-Based RSMA Algorithm availables : Non Core Continuity Constraint, Core Continuity Constraint";
+		return "ROADMs types availables : Fully-Non-Blocking, Core Continuity Constraint";
 	}
 
 	

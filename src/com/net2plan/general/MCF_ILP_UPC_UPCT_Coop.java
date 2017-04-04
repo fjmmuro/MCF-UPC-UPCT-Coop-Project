@@ -12,6 +12,20 @@
 package com.net2plan.general;
 
 
+import cern.colt.list.tdouble.DoubleArrayList;
+import cern.colt.list.tint.IntArrayList;
+import cern.colt.matrix.tdouble.DoubleFactory2D;
+import cern.colt.matrix.tdouble.DoubleMatrix2D;
+import com.jom.DoubleMatrixND;
+import com.jom.OptimizationProblem;
+import com.net2plan.interfaces.networkDesign.*;
+import com.net2plan.libraries.TrafficMatrixGenerationModels;
+import com.net2plan.libraries.WDMUtils;
+import com.net2plan.utils.Constants.RoutingType;
+import com.net2plan.utils.InputParameter;
+import com.net2plan.utils.Pair;
+import com.net2plan.utils.Triple;
+
 import java.io.File;
 import java.io.FileWriter;
 import java.io.IOException;
@@ -19,28 +33,6 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
 import java.util.Map;
-
-import com.jom.DoubleMatrixND;
-import com.jom.OptimizationProblem;
-import com.net2plan.interfaces.networkDesign.Demand;
-import com.net2plan.interfaces.networkDesign.IAlgorithm;
-import com.net2plan.interfaces.networkDesign.Link;
-import com.net2plan.interfaces.networkDesign.Net2PlanException;
-import com.net2plan.interfaces.networkDesign.NetPlan;
-import com.net2plan.interfaces.networkDesign.NetworkLayer;
-import com.net2plan.interfaces.networkDesign.Route;
-import com.net2plan.interfaces.networkDesign.Node;
-import com.net2plan.utils.InputParameter;
-import com.net2plan.utils.Pair;
-import com.net2plan.utils.Triple;
-import com.net2plan.utils.Constants.RoutingType;
-import com.net2plan.libraries.TrafficMatrixGenerationModels;
-import com.net2plan.libraries.WDMUtils;
-
-import cern.colt.list.tdouble.DoubleArrayList;
-import cern.colt.list.tint.IntArrayList;
-import cern.colt.matrix.tdouble.DoubleFactory2D;
-import cern.colt.matrix.tdouble.DoubleMatrix2D;
 
 
 /** This is a template to be used in the lab work, a starting point for the students to develop their programs
@@ -56,7 +48,7 @@ public class MCF_ILP_UPC_UPCT_Coop implements IAlgorithm
 	final private InputParameter maxSolverTimeInSeconds = new InputParameter ("maxSolverTimeInSeconds", (double) -1 , "Maximum time granted to the solver to solve the problem. If this time expires, the solver returns the best solution found so far (if a feasible solution is found)");
 	final private InputParameter numFrequencySlotsPerCore = new InputParameter ("numFrequencySlotsPerCore", (int) 120 , "Number of wavelengths per link" , 1, Integer.MAX_VALUE);
 	final private InputParameter maxPropagationDelayMs = new InputParameter ("maxPropagationDelayMs", (double) -1 , "Maximum allowed propagation time of a lighptath in miliseconds. If non-positive, no limit is assumed");
-	final private InputParameter ilpType = new InputParameter("ilpType", "#select# fully-non-blocking core-continuity-constraint", "Choose the type of the ILP exection");
+	final private InputParameter roadmType = new InputParameter("roadmType", "#select# fully-non-blocking core-continuity-constraint", "Choose the type of the ROADM type");
 	final private InputParameter totalTraffic = new InputParameter("totalTraffic", (double) 200, "Total Offered Traffic in Tbps ");
 	final private InputParameter scaleTraffic = new InputParameter("scaleTraffic", (boolean) true , "Option to scale the traffic using traffic factor ");
 	
@@ -95,23 +87,23 @@ public class MCF_ILP_UPC_UPCT_Coop implements IAlgorithm
 			netPlan.setTrafficMatrix(newTrafficMatrix);		
 		}
 		
-		final boolean isNotCCC = ilpType.getString().equalsIgnoreCase("fully-non-blocking");
+		final boolean isNotCCC = roadmType.getString().equalsIgnoreCase("fully-non-blocking");
 		
 		// Store transponder info 		
 		WDMUtils.TransponderTypesInfo tpInfo = new WDMUtils.TransponderTypesInfo(MCFUtils.getMFCTranspondersXTAwareInfo(C));
 		final int T = tpInfo.getNumTypes();	
 		
 		// Compute the candidate path list
-		final Map<Pair<Node,Node>,List<List<Link>>> cpl = netPlan.computeUnicastCandidatePathList(netPlan.getVectorLinkLengthInKm(), k.getInt() , tpInfo.getMaxOpticalReachKm(), -1,maxPropagationDelayMs.getDouble(),-1,1,-1,null,wdmLayer);
- 
+		final  Map<Pair<Node, Node>, List<List<Link>>> cpl = netPlan.computeUnicastCandidatePathList(netPlan.getVectorLinkLengthInKm(wdmLayer), k.getInt(), tpInfo.getMaxOpticalReachKm(),-1, maxPropagationDelayMs.getDouble(),-1,-1,-1,null,wdmLayer);
+
 		// Initialize lists needed for ILP 
 		final int maximumNumberOfPaths = T*k.getInt()*D;
-		List<Integer> transponderType_p = new ArrayList<Integer> (maximumNumberOfPaths);
-		List<Double> cost_p = new ArrayList<Double> (maximumNumberOfPaths); 
-		List<Double> lineRate_p = new ArrayList<Double> (maximumNumberOfPaths); 
-		List<Integer> numSlots_p = new ArrayList<Integer> (maximumNumberOfPaths);		
-		List<Demand> demand_p = new ArrayList<Demand> (maximumNumberOfPaths);
-		List<List<Link>> seqLinks_p = new ArrayList<List<Link>>(maximumNumberOfPaths);
+		List<Integer> transponderType_p = new ArrayList<>(maximumNumberOfPaths);
+		List<Double> cost_p = new ArrayList<> (maximumNumberOfPaths);
+		List<Double> lineRate_p = new ArrayList<> (maximumNumberOfPaths);
+		List<Integer> numSlots_p = new ArrayList<> (maximumNumberOfPaths);
+		List<Demand> demand_p = new ArrayList<> (maximumNumberOfPaths);
+		List<List<Link>> seqLinks_p = new ArrayList<>(maximumNumberOfPaths);
 		
 		for (Demand d : netPlan.getDemands())
 		{
@@ -242,7 +234,7 @@ public class MCF_ILP_UPC_UPCT_Coop implements IAlgorithm
 
 		/* Retrieve the optimum solutions */
 		DoubleMatrix2D x_ps = DoubleFactory2D.sparse.make(P,S);
-		List<DoubleMatrix2D> x_psc = new ArrayList<DoubleMatrix2D>();
+		List<DoubleMatrix2D> x_psc = new ArrayList<>();
 		
 		if(isNotCCC) x_ps = op.getPrimalSolution("x_ps").view2D();
 		else
@@ -300,7 +292,7 @@ public class MCF_ILP_UPC_UPCT_Coop implements IAlgorithm
 		// Check Spectrum Clashing
 		if (isNotCCC)
 			if (C == 1)	WDMUtils.checkResourceAllocationClashing(netPlan,false,false,wdmLayer);
-		else if (ilpType.getString().equalsIgnoreCase("core-continuity-constraint"))
+		else if (roadmType.getString().equalsIgnoreCase("core-continuity-constraint"))
 			MCFUtils.checkResourceAllocationClashingPerCore(netPlan, C);
 		
 		// Store results		
@@ -308,7 +300,7 @@ public class MCF_ILP_UPC_UPCT_Coop implements IAlgorithm
 		final double totalFSOccupied = netPlan.getVectorLinkOccupiedCapacity().zSum();
 		final double totalOfferedTraffic = netPlan.getVectorDemandOfferedTraffic().zSum();
 		
-		File file = new File(netPlan.getNetworkName()+ilpType.getString()+".txt");
+		File file = new File("ilp_" + netPlan.getNetworkName()+ roadmType.getString()+".txt");
 		if (!file.exists()){
 			try {
 				file.createNewFile();
@@ -332,7 +324,7 @@ public class MCF_ILP_UPC_UPCT_Coop implements IAlgorithm
 	@Override
 	public String getDescription()
 	{
-		return "Formulation-Based RSMA Algorithm availables : Non Core Continuity Constraint, Core Continuity Constraint";
+		return "ROADMs types availables : Fully-Non-Blocking, Core Continuity Constraint";
 	}
 
 	
