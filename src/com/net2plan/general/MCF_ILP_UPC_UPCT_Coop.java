@@ -71,7 +71,10 @@ public class MCF_ILP_UPC_UPCT_Coop implements IAlgorithm
 		final int E = netPlan.getNumberOfLinks(wdmLayer);
 		final int D = netPlan.getNumberOfDemands(wdmLayer);
 		final int C = Integer.parseInt(numCores.getString());
-		final int S = numFrequencySlotsPerCore.getInt();
+		int S = numFrequencySlotsPerCore.getInt();
+		final boolean isNotCCC = roadmType.getString().equalsIgnoreCase("fully-non-blocking");
+
+		if (isNotCCC) S = S;
 		
 		if (N == 0 || E == 0 || D == 0 || S == 0 || C == 0) throw new Net2PlanException("This algorithm requires a topology with links, slots and a demand set");
 		
@@ -86,9 +89,7 @@ public class MCF_ILP_UPC_UPCT_Coop implements IAlgorithm
 			DoubleMatrix2D newTrafficMatrix = TrafficMatrixGenerationModels.normalizationPattern_totalTraffic(netPlan.getMatrixNode2NodeOfferedTraffic(), totalTraffic.getDouble()*1000);	
 			netPlan.setTrafficMatrix(newTrafficMatrix);		
 		}
-		
-		final boolean isNotCCC = roadmType.getString().equalsIgnoreCase("fully-non-blocking");
-		
+
 		// Store transponder info 		
 		WDMUtils.TransponderTypesInfo tpInfo = new WDMUtils.TransponderTypesInfo(MCFUtils.getMFCTranspondersXTAwareInfo(C));
 		final int T = tpInfo.getNumTypes();	
@@ -147,11 +148,11 @@ public class MCF_ILP_UPC_UPCT_Coop implements IAlgorithm
 		OptimizationProblem op = new OptimizationProblem();
 
 		/* Add the decision variables to the problem */
-		if (isNotCCC)
-			op.addDecisionVariable("x_ps", true, new int[] {P, S}, new DoubleMatrixND (new int [] {P,S}) , new DoubleMatrixND (feasibleAssignment_ps)); /* 1 if lightpath d(p) is routed through path p in wavelength w */
-		else		
-			for (int c = 0 ; c < C; c++)			
-				op.addDecisionVariable("x_ps"+Integer.toString(c), true, new int[] {P, S}, new DoubleMatrixND (new int [] {P,S}) , new DoubleMatrixND (feasibleAssignment_ps));
+//		if (isNotCCC)
+//			op.addDecisionVariable("x_ps", true, new int[] {P, S}, new DoubleMatrixND (new int [] {P,S}) , new DoubleMatrixND (feasibleAssignment_ps)); /* 1 if lightpath d(p) is routed through path p in wavelength w */
+//		else
+		for (int c = 0 ; c < C; c++)
+			op.addDecisionVariable("x_ps"+Integer.toString(c), true, new int[] {P, S}, new DoubleMatrixND (new int [] {P,S}) , new DoubleMatrixND (feasibleAssignment_ps));
 				
 		// Set input Parameters		
 		op.setInputParameter("S", S);
@@ -163,37 +164,36 @@ public class MCF_ILP_UPC_UPCT_Coop implements IAlgorithm
 		op.setInputParameter("A_ep", A_ep); //Equal to route and segment indexes
 		
 		// Set Objective Function
-		if(isNotCCC)
-			op.setObjectiveFunction("minimize", "sum(c_p * x_ps)"); /* sum_ps (c_p . x_ps) */
-		else
-		{
-			String objectiveFuntion = "";
-			for (int c = 0; c < C ; c++)			
-				objectiveFuntion += (c == 0? "" : " + ") + "sum(c_p * x_ps" + Integer.toString(c) + ")" ;
-			op.setObjectiveFunction("minimize", objectiveFuntion);     /* sum_ps (c_p . x_pcs) */
-		}
+//		if(isNotCCC)
+//			op.setObjectiveFunction("minimize", "sum(c_p * x_ps)"); /* sum_ps (c_p . x_ps) */
+//		else
+//		{
+		String objectiveFunction = "";
+		for (int c = 0; c < C ; c++)
+			objectiveFunction += (c == 0? "" : " + ") + "sum(c_p * x_ps" + Integer.toString(c) + ")" ;
+		op.setObjectiveFunction("minimize", objectiveFunction);     /* sum_ps (c_p . x_pcs) */
+//		}
 		
-		if(isNotCCC)
-			op.addConstraint("A_dp * diag (rate_p) * x_ps * ones([S; 1]) >= h_d'"); /* each lightpath d: is carried in exactly one p-w --> sum_{p in P_d, w} x_dp <= 1, for all d */
-		else 		
-		{
+//		if(isNotCCC)
+//			op.addConstraint("A_dp * diag (rate_p) * x_ps * ones([S; 1]) >= h_d'"); /* each lightpath d: is carried in exactly one p-w --> sum_{p in P_d, w} x_dp <= 1, for all d */
+//		else
+//		{
 			String constraintString = "";
 			for (int c = 0; c < C; c++)
 				constraintString += (c == 0? "" : " + ") + "A_dp * diag (rate_p) * x_ps" + Integer.toString(c) + " * ones([S; 1]) " ;
 			op.addConstraint(constraintString +" >= h_d'");
-		}
+//		}
 		
 		/* Frequency-slot clashing */
 		/* \sum_t \sum_{p \in P_e, sinit {s-numSlots(t),s} x_ps <= 1, for each e, s   */
-		int Cmax = C;
-		if(isNotCCC)		
-			Cmax = 1;
-	
-		for(int c = 0; c < Cmax; c++)
+
+		String constraintString2 = "";
+		for(int c = 0; c < C; c++)
 		{
-			String constraintString = "";
+			if(!isNotCCC) constraintString2 = "";
+
 			for (int t = 0; t < T ; t ++)
-			{				
+			{
 				final String name_At_pp = "A" + Integer.toString(t) + "_pp";
 				final String name_At_s1s2 = "A" + Integer.toString(t) + "_s1s2";
 				/* At_pp, diagonal matrix, 1 if path p is associated to a transponder of type t */
@@ -215,57 +215,60 @@ public class MCF_ILP_UPC_UPCT_Coop implements IAlgorithm
 
 				op.setInputParameter(name_At_pp, At_pp);
 				op.setInputParameter(name_At_s1s2, At_s1s2);
-				if (isNotCCC)
-					constraintString += (t == 0? "" : " + ") + "( A_ep * " + name_At_pp + " * x_ps * " + name_At_s1s2 + " ) ";
-				else
-					constraintString += (t == 0? "" : " + ") + "( A_ep * " + name_At_pp + " * x_ps"+Integer.toString(c)+" * " + name_At_s1s2 + " ) "; 
+
+				if(isNotCCC) constraintString2 += (c == 0 && t == 0 ? "" : " + ") + "( A_ep * " + name_At_pp + " * x_ps"+Integer.toString(c)+" * " + name_At_s1s2 + " ) ";
+				else constraintString2 += (t == 0? "" : " + ") + "( A_ep * " + name_At_pp + " * x_ps"+Integer.toString(c)+" * " + name_At_s1s2 + " ) ";
 				
 			}		
-			if (isNotCCC)
-				op.addConstraint(constraintString + " <= C"); /* wavelength-clashing constraints --> sum_{p in P_e, w} x_pw <= C, for all e,w */
-			else				
-				op.addConstraint(constraintString + " <= 1"); /* wavelength-clashing constraints --> sum_{p in P_e, w} x_pw <= C, for all e,w */	
-		}		
+			if (!isNotCCC) op.addConstraint(constraintString2 + " <= 1"); /* wavelength-clashing constraints --> sum_{p in P_e, w} x_pw <= C, for all e,w */
+		}
+		if (isNotCCC) op.addConstraint(constraintString2 + " <= C"); /* wavelength-clashing constraints --> sum_{p in P_e, w} x_pw <= C, for all e,w */
 		
 		op.solve(solverName.getString(), "solverLibraryName", solverLibraryName.getString() , "maxSolverTimeInSeconds" , maxSolverTimeInSeconds.getDouble());
 
 		/* If a feasible solution was not found, quit (this may also happen if after the maximum solver time no feasible solution is found) */
+		System.out.println("A feasible soltuion was found: " + op.solutionIsFeasible());
+		System.out.println("The solution has been proven to be optimal: " + op.solutionIsOptimal());
+		System.out.println("The problem has been proven to be unfeasible: " + op.feasibleSolutionDoesNotExist());
+
+		if (op.feasibleSolutionDoesNotExist()) throw new Net2PlanException("The problem has been proven unfeasible");
 		if (!op.solutionIsFeasible()) throw new Net2PlanException("A feasible solution was not found");
 
+
 		/* Retrieve the optimum solutions */
-		DoubleMatrix2D x_ps = DoubleFactory2D.sparse.make(P,S);
+//		DoubleMatrix2D x_ps = DoubleFactory2D.sparse.make(P,S);
 		List<DoubleMatrix2D> x_psc = new ArrayList<>();
 		
-		if(isNotCCC) x_ps = op.getPrimalSolution("x_ps").view2D();
-		else
-		{			
+//		if(isNotCCC) x_ps = op.getPrimalSolution("x_ps").view2D();
+//		else
+//		{
 			for (int c = 0; c < C; c++)
 			{
 				String name = "x_ps"+Integer.toString(c);
 				x_psc.add(op.getPrimalSolution(name).view2D());
 			}				
-		}
+//		}
 		
 		/* Create the lightpaths according to the solutions given */
-		WDMUtils.setFibersNumFrequencySlots(netPlan , numFrequencySlotsPerCore.getInt() , wdmLayer);
+		WDMUtils.setFibersNumFrequencySlots(netPlan , S , wdmLayer);
 		IntArrayList slots = new IntArrayList (); DoubleArrayList vals = new DoubleArrayList ();
 		
 		for (int p = 0; p < P ; p ++)
 		{
-			if(isNotCCC)
-			{
-				slots.clear(); vals.clear();
-				x_ps.viewRow(p).getNonZeros(slots , vals);
-				
-				if (slots.size() == 0) continue;
-				for (int cont = 0 ; cont < slots.size() ; cont ++)
-				{
-					final int s = slots.get (cont);
-					WDMUtils.addLightpath(demand_p.get(p) , new WDMUtils.RSA(seqLinks_p.get(p) , s , numSlots_p.get(p)), lineRate_p.get(p));			
-				}
-			}
-			else
-			{
+//			if(isNotCCC)
+//			{
+//				slots.clear(); vals.clear();
+//				x_ps.viewRow(p).getNonZeros(slots , vals);
+//
+//				if (slots.size() == 0) continue;
+//				for (int cont = 0 ; cont < slots.size() ; cont ++)
+//				{
+//					final int s = slots.get (cont);
+//					WDMUtils.addLightpath(demand_p.get(p) , new WDMUtils.RSA(seqLinks_p.get(p) , s , numSlots_p.get(p)), lineRate_p.get(p));
+//				}
+//			}
+//			else
+//			{
 				for (int c = 0; c < C; c++)
 				{
 					slots.clear(); vals.clear();
@@ -286,7 +289,7 @@ public class MCF_ILP_UPC_UPCT_Coop implements IAlgorithm
 						coreIDs += r.getAttribute("fiberCoreID") + " ";
 					d.setAttribute("fiberCoreIDs", coreIDs);					
 				}
-			}			
+//			}
 		}	
 		
 		// Check Spectrum Clashing
