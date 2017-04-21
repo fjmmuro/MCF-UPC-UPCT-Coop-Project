@@ -131,7 +131,7 @@ public class MCF_Heuristic_UPC_UPCT_Coop implements IAlgorithm
 		boolean atLeastOneLpAdded = false;
 
 		Set<Integer> demandIndexesNotToTry = new HashSet<> ();
-		double totalCost = 0;
+
 		do
 		{
 			double [] b_d = getVectorDemandAverageAllStatesBlockedTraffic (netPlan);
@@ -149,7 +149,7 @@ public class MCF_Heuristic_UPC_UPCT_Coop implements IAlgorithm
 				if (d.getBlockedTraffic() < 1e-3) {
 					demandIndexesNotToTry.add(demandIndex); continue;
 				}
-				/* Try all the possible routes and all the possible transpoder types. Take the solution with the best
+				/* Try all the possible routes and all the possible transponder types. Take the solution with the best
 				 * performance metric (average extra carried traffic / transponder cost) */
 				WDMUtils.RSA best_rsa = null;
 				double best_performanceMetric = 0;
@@ -160,36 +160,48 @@ public class MCF_Heuristic_UPC_UPCT_Coop implements IAlgorithm
 
 				for (int pathIndex : demand2PathListMap.get (d))
 				{
-					List<Link> firstPath = seqLinks_p.get(pathIndex);
+//                    if(d.getIndex() == 0) System.out.println("Feasible Path per demand 0: " + demand2PathListMap.get(d).size() );
+
+                    List<Link> path = seqLinks_p.get(pathIndex);
 					int slotId = -1;
 					int current_core = -1;
 
 					if(isNotCCC)
-						slotId = WDMUtils.spectrumAssignment_firstFit(firstPath,frequencySlot2FiberOccupancy_se , numSlots_p.get(pathIndex));
+						slotId = WDMUtils.spectrumAssignment_firstFit(path,frequencySlot2FiberOccupancy_se , numSlots_p.get(pathIndex));
 					else
 					{
 						for(int c = 0; c < C; c++)
 						{
-							slotId = WDMUtils.spectrumAssignment_firstFit(firstPath, frequencySlot2FiberOccupancy_sec.get(c), numSlots_p.get(pathIndex));
+							slotId = WDMUtils.spectrumAssignment_firstFit(path, frequencySlot2FiberOccupancy_sec.get(c), numSlots_p.get(pathIndex));
 							current_core = c;
 							if (slotId != -1) break;
 						}
 					}
-
 					/* Check if the path is not feasible */
 					if (slotId == -1) continue;
 
 					/* If the performance metric is better than existing, this is the best choice */
-//					final double extraCarriedTraffic = getAverageAllStatesExtraCarriedTrafficAfterPotentialAllocation (d , lineRate_p.get(pathIndex) , seqLinks_p.get(pathIndex));
 					final double extraCarriedTraffic = Math.min(d.getBlockedTraffic() , lineRate_p.get(pathIndex));
-					final double performanceIndicator = extraCarriedTraffic / cost_p.get(pathIndex);
+					final double performanceIndicator = extraCarriedTraffic / (cost_p.get(pathIndex) );
 					if (performanceIndicator > best_performanceMetric)
 					{
 						best_performanceMetric = performanceIndicator;
-						best_rsa = new WDMUtils.RSA(firstPath , slotId , numSlots_p.get(pathIndex) , null);
+						best_rsa = new WDMUtils.RSA(path , slotId , numSlots_p.get(pathIndex) , null);
 						best_core = current_core;
 						best_pathIndex = pathIndex;
 					}
+
+//                    if(d.getIndex() == 0 && d.getBlockedTraffic() < 101)
+//                    {
+//                        System.out.println();
+//                        System.out.println("-------------- Path Index ------------: " + pathIndex);
+//                        System.out.println("Path: " + path);
+//                        System.out.println("Cost: " + cost_p.get(pathIndex) );
+//                        System.out.println("Num Slots: " + numSlots_p.get(pathIndex));
+//                        System.out.println("Line Rates: " + lineRate_p.get(pathIndex) );
+//                        System.out.println("performanceIndicator: " + performanceIndicator);
+//                        System.out.println("best_performanceMetric:  " + best_performanceMetric);
+//                    }
 				}
 
 				/* No lp could be added to this demand, try with the next */
@@ -197,7 +209,6 @@ public class MCF_Heuristic_UPC_UPCT_Coop implements IAlgorithm
 
 				/* Add the lightpath to the design */
 				atLeastOneLpAdded = true;
-				totalCost += cost_p.get(best_pathIndex);
 
 				if(isNotCCC)
 				{
@@ -214,20 +225,11 @@ public class MCF_Heuristic_UPC_UPCT_Coop implements IAlgorithm
 					}
 				}
 
-//				System.out.println("Demand index: " + demandIndex);
-//				System.out.println("Path size: " + lp.getNumberOfHops());
-////				System.out.println("Slot ID: " + best_rsa.get);
-//				System.out.println("Num slots :" + numSlots_p.get(best_pathIndex));
-//				System.out.println("Line rate : " + lineRate_p.get(best_pathIndex));
-
 				break;
 			}
 
 		} while (atLeastOneLpAdded);
 
-//		WDMUtils.checkResourceAllocationClashing(netPlan,true,true,wdmLayer);
-
-		// Check Spectrum Clashing
 		// Check Spectrum Clashing
 		if (isNotCCC)
 			if (C == 1)	WDMUtils.checkResourceAllocationClashing(netPlan,false,false,wdmLayer);
@@ -239,7 +241,7 @@ public class MCF_Heuristic_UPC_UPCT_Coop implements IAlgorithm
 		final double totalFSOccupied = netPlan.getVectorLinkOccupiedCapacity().zSum();
 		final double totalOfferedTraffic = netPlan.getVectorDemandOfferedTraffic().zSum();
 
-		if (throughput < totalTraffic.getDouble()*1000) throw new Net2PlanException("Maximum traffic limit reached");
+		if (!netPlan.getDemandsBlocked().isEmpty()) throw new Net2PlanException("Maximum traffic limit reached");
 
 		File file = new File("heuristic_"+ netPlan.getNetworkName()+ roadmType.getString()+".txt");
 		if (!file.exists()){
@@ -257,7 +259,7 @@ public class MCF_Heuristic_UPC_UPCT_Coop implements IAlgorithm
 			e.printStackTrace();
 		}
 
-		return "Offered Traffic: " + throughput +" - Throughut (Gbps): " + throughput + " - Total FSOccupied : " + totalFSOccupied ; // this is the message that will be shown in the screen at the end of the algorithm
+		return "Offered Traffic: " + throughput +" - Throughput (Gbps): " + throughput + " - Total FSOccupied : " + totalFSOccupied ; // this is the message that will be shown in the screen at the end of the algorithm
 	}
 
 	/** Returns a description message that will be shown in the graphical user interface
@@ -291,12 +293,10 @@ public class MCF_Heuristic_UPC_UPCT_Coop implements IAlgorithm
 	{
 		double [] res = new double [netPlan.getNumberOfDemands()];
 		for (Demand d : netPlan.getDemands())
-			res [d.getIndex()] = d.getBlockedTraffic();
+			res [d.getIndex()] = d.getBlockedTraffic() / d.getOfferedTraffic();
 
 		return res;
 	}
-
-
 
 	
 }

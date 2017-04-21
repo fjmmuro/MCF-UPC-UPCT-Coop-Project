@@ -42,7 +42,7 @@ public class MCFUtils
 	{
 		String transponders = "";
 		
-		if (C == 7 || C == 12)		
+		if (C == 7 || C == 12)
 			transponders += "40 3 3 20000 1; 40 2 2 9000 1 ; 100 3 3 9000 1; 100 2 2 2000 1; 400 4 4 600 1 "; 
 		else if (C == 19)
 			transponders += "40 3 3 4755 1; 40 2 2 2383 1; 100 3 3 2383 1; 100 2 2 599 1; 400 4 4 150 1 "; 

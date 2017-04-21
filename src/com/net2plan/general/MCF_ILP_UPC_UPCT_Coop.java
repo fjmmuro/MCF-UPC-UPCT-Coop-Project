@@ -227,7 +227,7 @@ public class MCF_ILP_UPC_UPCT_Coop implements IAlgorithm
 		op.solve(solverName.getString(), "solverLibraryName", solverLibraryName.getString() , "maxSolverTimeInSeconds" , maxSolverTimeInSeconds.getDouble());
 
 		/* If a feasible solution was not found, quit (this may also happen if after the maximum solver time no feasible solution is found) */
-		System.out.println("A feasible soltuion was found: " + op.solutionIsFeasible());
+		System.out.println("A feasible solution was found: " + op.solutionIsFeasible());
 		System.out.println("The solution has been proven to be optimal: " + op.solutionIsOptimal());
 		System.out.println("The problem has been proven to be unfeasible: " + op.feasibleSolutionDoesNotExist());
 
