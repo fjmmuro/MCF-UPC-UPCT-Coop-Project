@@ -156,6 +156,7 @@ public class MCF_Heuristic_UPC_UPCT_Coop implements IAlgorithm
 				int best_pathIndex = -1;
 				int best_core = -1;
 				int best_slotID = -1;
+				int best_pathSize = Integer.MAX_VALUE;
 				List<Link> best_route = null;
 
 				for (int pathIndex : demand2PathListMap.get (d))
@@ -177,31 +178,21 @@ public class MCF_Heuristic_UPC_UPCT_Coop implements IAlgorithm
 							if (slotId != -1) break;
 						}
 					}
+
 					/* Check if the path is not feasible */
 					if (slotId == -1) continue;
 
 					/* If the performance metric is better than existing, this is the best choice */
 					final double extraCarriedTraffic = Math.min(d.getBlockedTraffic() , lineRate_p.get(pathIndex));
-					final double performanceIndicator = extraCarriedTraffic / (cost_p.get(pathIndex) );
-					if (performanceIndicator > best_performanceMetric)
+					final double performanceIndicator = extraCarriedTraffic / (cost_p.get(pathIndex));
+					if (performanceIndicator > best_performanceMetric )
 					{
 						best_performanceMetric = performanceIndicator;
 						best_rsa = new WDMUtils.RSA(path , slotId , numSlots_p.get(pathIndex) , null);
 						best_core = current_core;
 						best_pathIndex = pathIndex;
+						best_pathSize = path.size();
 					}
-
-//                    if(d.getIndex() == 0 && d.getBlockedTraffic() < 101)
-//                    {
-//                        System.out.println();
-//                        System.out.println("-------------- Path Index ------------: " + pathIndex);
-//                        System.out.println("Path: " + path);
-//                        System.out.println("Cost: " + cost_p.get(pathIndex) );
-//                        System.out.println("Num Slots: " + numSlots_p.get(pathIndex));
-//                        System.out.println("Line Rates: " + lineRate_p.get(pathIndex) );
-//                        System.out.println("performanceIndicator: " + performanceIndicator);
-//                        System.out.println("best_performanceMetric:  " + best_performanceMetric);
-//                    }
 				}
 
 				/* No lp could be added to this demand, try with the next */
@@ -243,7 +234,10 @@ public class MCF_Heuristic_UPC_UPCT_Coop implements IAlgorithm
 
 		if (!netPlan.getDemandsBlocked().isEmpty()) throw new Net2PlanException("Maximum traffic limit reached");
 
-		File file = new File("heuristic_"+ netPlan.getNetworkName()+ roadmType.getString()+".txt");
+		File folder = new File (netPlan.getNetworkName());
+		if (!folder.exists()) folder.mkdir();
+
+		File file = new File(folder+"/heuristic_"+ roadmType.getString()+".txt");
 		if (!file.exists()){
 			try {
 				file.createNewFile();
@@ -293,7 +287,7 @@ public class MCF_Heuristic_UPC_UPCT_Coop implements IAlgorithm
 	{
 		double [] res = new double [netPlan.getNumberOfDemands()];
 		for (Demand d : netPlan.getDemands())
-			res [d.getIndex()] = d.getBlockedTraffic() / d.getOfferedTraffic();
+			res [d.getIndex()] = d.getBlockedTraffic() / d.getOfferedTraffic() ;
 
 		return res;
 	}

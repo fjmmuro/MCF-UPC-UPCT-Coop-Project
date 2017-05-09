@@ -148,10 +148,7 @@ public class MCF_ILP_UPC_UPCT_Coop implements IAlgorithm
 		OptimizationProblem op = new OptimizationProblem();
 
 		/* Add the decision variables to the problem */
-//		if (isNotCCC)
-//			op.addDecisionVariable("x_ps", true, new int[] {P, S}, new DoubleMatrixND (new int [] {P,S}) , new DoubleMatrixND (feasibleAssignment_ps)); /* 1 if lightpath d(p) is routed through path p in wavelength w */
-//		else
-		for (int c = 0 ; c < C; c++)
+    	for (int c = 0 ; c < C; c++)
 			op.addDecisionVariable("x_ps"+Integer.toString(c), true, new int[] {P, S}, new DoubleMatrixND (new int [] {P,S}) , new DoubleMatrixND (feasibleAssignment_ps));
 				
 		// Set input Parameters		
@@ -164,25 +161,16 @@ public class MCF_ILP_UPC_UPCT_Coop implements IAlgorithm
 		op.setInputParameter("A_ep", A_ep); //Equal to route and segment indexes
 		
 		// Set Objective Function
-//		if(isNotCCC)
-//			op.setObjectiveFunction("minimize", "sum(c_p * x_ps)"); /* sum_ps (c_p . x_ps) */
-//		else
-//		{
 		String objectiveFunction = "";
 		for (int c = 0; c < C ; c++)
 			objectiveFunction += (c == 0? "" : " + ") + "sum(c_p * x_ps" + Integer.toString(c) + ")" ;
 		op.setObjectiveFunction("minimize", objectiveFunction);     /* sum_ps (c_p . x_pcs) */
-//		}
-		
-//		if(isNotCCC)
-//			op.addConstraint("A_dp * diag (rate_p) * x_ps * ones([S; 1]) >= h_d'"); /* each lightpath d: is carried in exactly one p-w --> sum_{p in P_d, w} x_dp <= 1, for all d */
-//		else
-//		{
-			String constraintString = "";
-			for (int c = 0; c < C; c++)
-				constraintString += (c == 0? "" : " + ") + "A_dp * diag (rate_p) * x_ps" + Integer.toString(c) + " * ones([S; 1]) " ;
-			op.addConstraint(constraintString +" >= h_d'");
-//		}
+
+        String constraintString = "";
+        for (int c = 0; c < C; c++)
+            constraintString += (c == 0? "" : " + ") + "A_dp * diag (rate_p) * x_ps" + Integer.toString(c) + " * ones([S; 1]) " ;
+        op.addConstraint(constraintString +" >= h_d'");
+
 		
 		/* Frequency-slot clashing */
 		/* \sum_t \sum_{p \in P_e, sinit {s-numSlots(t),s} x_ps <= 1, for each e, s   */
@@ -236,12 +224,7 @@ public class MCF_ILP_UPC_UPCT_Coop implements IAlgorithm
 
 
 		/* Retrieve the optimum solutions */
-//		DoubleMatrix2D x_ps = DoubleFactory2D.sparse.make(P,S);
 		List<DoubleMatrix2D> x_psc = new ArrayList<>();
-		
-//		if(isNotCCC) x_ps = op.getPrimalSolution("x_ps").view2D();
-//		else
-//		{
 			for (int c = 0; c < C; c++)
 			{
 				String name = "x_ps"+Integer.toString(c);
@@ -255,41 +238,26 @@ public class MCF_ILP_UPC_UPCT_Coop implements IAlgorithm
 		
 		for (int p = 0; p < P ; p ++)
 		{
-//			if(isNotCCC)
-//			{
-//				slots.clear(); vals.clear();
-//				x_ps.viewRow(p).getNonZeros(slots , vals);
-//
-//				if (slots.size() == 0) continue;
-//				for (int cont = 0 ; cont < slots.size() ; cont ++)
-//				{
-//					final int s = slots.get (cont);
-//					WDMUtils.addLightpath(demand_p.get(p) , new WDMUtils.RSA(seqLinks_p.get(p) , s , numSlots_p.get(p)), lineRate_p.get(p));
-//				}
-//			}
-//			else
-//			{
-				for (int c = 0; c < C; c++)
-				{
-					slots.clear(); vals.clear();
-					x_psc.get(c).viewRow(p).getNonZeros(slots , vals);
-					
-					if (slots.size() == 0) continue;
-					for (int cont = 0 ; cont < slots.size() ; cont ++)
-					{
-						final int s = slots.get (cont);
-						Route r = WDMUtils.addLightpath(demand_p.get(p) , new WDMUtils.RSA(seqLinks_p.get(p) , s , numSlots_p.get(p)), lineRate_p.get(p));		
-						r.setAttribute("fiberCoreID", Integer.toString(c));
-					}					
-				}
-				for (Demand d : netPlan.getDemands())
-				{
-					String coreIDs = "";
-					for (Route r : d.getRoutes())					
-						coreIDs += r.getAttribute("fiberCoreID") + " ";
-					d.setAttribute("fiberCoreIDs", coreIDs);					
-				}
-//			}
+            for (int c = 0; c < C; c++)
+            {
+                slots.clear(); vals.clear();
+                x_psc.get(c).viewRow(p).getNonZeros(slots , vals);
+
+                if (slots.size() == 0) continue;
+                for (int cont = 0 ; cont < slots.size() ; cont ++)
+                {
+                    final int s = slots.get (cont);
+                    Route r = WDMUtils.addLightpath(demand_p.get(p) , new WDMUtils.RSA(seqLinks_p.get(p) , s , numSlots_p.get(p)), lineRate_p.get(p));
+                    r.setAttribute("fiberCoreID", Integer.toString(c));
+                }
+            }
+            for (Demand d : netPlan.getDemands())
+            {
+                String coreIDs = "";
+                for (Route r : d.getRoutes())
+                    coreIDs += r.getAttribute("fiberCoreID") + " ";
+                d.setAttribute("fiberCoreIDs", coreIDs);
+            }
 		}	
 		
 		// Check Spectrum Clashing
@@ -319,7 +287,7 @@ public class MCF_ILP_UPC_UPCT_Coop implements IAlgorithm
 			e.printStackTrace();
 		}			
 		
-		return "Offered Traffic: " + throughput +" - Throughut (Gbps): " + throughput + " - Total FSOccupied : " + totalFSOccupied ; // this is the message that will be shown in the screen at the end of the algorithm
+		return "Offered Traffic: " + netPlan.getVectorDemandOfferedTraffic().zSum() +" - Throughput (Gbps): " + throughput + " - Total FSOccupied : " + totalFSOccupied ; // this is the message that will be shown in the screen at the end of the algorithm
 	}
 
 	/** Returns a description message that will be shown in the graphical user interface
